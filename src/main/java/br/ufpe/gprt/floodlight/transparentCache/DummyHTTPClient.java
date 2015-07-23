@@ -9,6 +9,8 @@ import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.net.Socket;
 
+import net.floodlightcontroller.core.IOFSwitch;
+
 public class DummyHTTPClient implements Runnable {
 
 	private Socket socks;
@@ -16,11 +18,15 @@ public class DummyHTTPClient implements Runnable {
 	private int port;
 	private String request;
 	private StringBuffer responseBuffer;
+	private HttpMatcher httpMatcher;
+	private IOFSwitch sw;
 	
-	public DummyHTTPClient(String host, int port, String request){
+	public DummyHTTPClient(String host, int port, String request, HttpMatcher httpMatcher, IOFSwitch sw){
 		this.host = host;
 		this.port = port;
 		this.request = request;
+		this.httpMatcher = httpMatcher;
+		this.sw = sw;
 	}
 
 	@Override
@@ -59,6 +65,8 @@ public class DummyHTTPClient implements Runnable {
 		
 		this.socks = new Socket();
 		socks.connect(new InetSocketAddress(host, port));
+		
+		this.httpMatcher.addResponseFlowMod(sw, this.getLocalPort(), this.getLocalAddress());
 		return this.socks.getLocalPort();
 	}
 	

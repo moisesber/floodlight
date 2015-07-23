@@ -117,6 +117,7 @@ public class HttpMatcher implements IFloodlightModule, IOFMessageListener {
 						if (gtpIp.getProtocol().equals(IpProtocol.TCP)) {
 
 							TCP tcp = (TCP) gtpIp.getPayload();
+							logger.warn("TCP on top of GTP detected! port = "+tcp.getDestinationPort());
 
 							if (tcp.getDestinationPort().equals(
 									TransportPort.of(80))) {
@@ -125,20 +126,18 @@ public class HttpMatcher implements IFloodlightModule, IOFMessageListener {
 								byte[] bytes = data.getData();
 								
 								if(bytes.length > 0){
-									logger.warn("TCP on top of GTP detected!");
 
 									String s = new String(bytes);
 									
 									if(s.contains("GET") && s.contains("HTTP") && s.contains("mp4")){
-										String host = "10.0.0.254";
+										String host = "10.0.0.2";
 										logger.warn("HTTP GET detected, forwarding it to "+host);
 
-										DummyHTTPClient dummyClient = new DummyHTTPClient(host, 80, s);
+										//CHANGE THIS! TODO
+										//THIS IS UGLY AS HELL!
+										DummyHTTPClient dummyClient = new DummyHTTPClient(host, 80, s, this, sw);
 										Thread t = new Thread(dummyClient);
 										t.start();
-										this.addResponseFlowMod(sw, dummyClient.getLocalPort(), dummyClient.getLocalAddress());
-										
-
 									}
 								}
 							}
@@ -150,7 +149,8 @@ public class HttpMatcher implements IFloodlightModule, IOFMessageListener {
 				}
 			} if (ip.getProtocol().equals(IpProtocol.TCP)) {
 				TCP tcp = (TCP) ip.getPayload();
-				
+				logger.warn("Intercepted TCP to localhost received outside of GTP.");
+
 				for (int localPort : this.flowModeList.keySet()) {
 					if (tcp.getDestinationPort().equals(
 							TransportPort.of(localPort))) {
@@ -159,7 +159,6 @@ public class HttpMatcher implements IFloodlightModule, IOFMessageListener {
 						byte[] bytes = data.getData();
 						
 						if(bytes.length > 0){
-							logger.warn("Intercepted TCP to localhost received outside of GTP.");
 
 							String s = new String(bytes);
 							logger.warn(s);
@@ -172,7 +171,7 @@ public class HttpMatcher implements IFloodlightModule, IOFMessageListener {
 		return Command.CONTINUE;
 	}
 
-	private void addResponseFlowMod(IOFSwitch sw, int localPort, InetAddress inetAddress) {
+	public void addResponseFlowMod(IOFSwitch sw, int localPort, InetAddress inetAddress) {
 		OFFactory myFactory = sw.getOFFactory();
 		
 		Match myMatch = myFactory
