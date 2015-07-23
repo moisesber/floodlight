@@ -1,8 +1,11 @@
 package br.ufpe.gprt.floodlight.transparentCache;
 
-import java.io.IOException;
+import java.net.Inet4Address;
+import java.net.InetAddress;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 import net.floodlightcontroller.core.FloodlightContext;
@@ -21,12 +24,24 @@ import net.floodlightcontroller.packet.IPv4;
 import net.floodlightcontroller.packet.TCP;
 import net.floodlightcontroller.packet.UDP;
 import net.floodlightcontroller.packet.gtp.AbstractGTP;
+import net.floodlightcontroller.util.FlowModUtils;
 
+import org.projectfloodlight.openflow.protocol.OFFactory;
+import org.projectfloodlight.openflow.protocol.OFFlowDelete;
+import org.projectfloodlight.openflow.protocol.OFFlowMod;
 import org.projectfloodlight.openflow.protocol.OFMessage;
 import org.projectfloodlight.openflow.protocol.OFPacketIn;
 import org.projectfloodlight.openflow.protocol.OFType;
+import org.projectfloodlight.openflow.protocol.action.OFAction;
+import org.projectfloodlight.openflow.protocol.action.OFActionOutput;
+import org.projectfloodlight.openflow.protocol.action.OFActions;
+import org.projectfloodlight.openflow.protocol.match.Match;
+import org.projectfloodlight.openflow.protocol.match.MatchField;
 import org.projectfloodlight.openflow.types.EthType;
+import org.projectfloodlight.openflow.types.IPv4Address;
+import org.projectfloodlight.openflow.types.IPv4AddressWithMask;
 import org.projectfloodlight.openflow.types.IpProtocol;
+import org.projectfloodlight.openflow.types.OFPort;
 import org.projectfloodlight.openflow.types.TransportPort;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -35,6 +50,7 @@ public class HttpMatcher implements IFloodlightModule, IOFMessageListener {
 
 	protected IFloodlightProviderService floodlightProvider;
 	protected IOFSwitchService switchService;
+	private Map<Integer,OFFlowMod> flowModeList;
 	protected static Logger logger;
 
 	@Override
@@ -99,32 +115,28 @@ public class HttpMatcher implements IFloodlightModule, IOFMessageListener {
 						logger.warn("GTP NOT Control Packet Proto = "+gtpIp.getProtocol());
 
 						if (gtpIp.getProtocol().equals(IpProtocol.TCP)) {
-							logger.warn("TCP on top of GTP detected!");
 
 							TCP tcp = (TCP) gtpIp.getPayload();
 
 							if (tcp.getDestinationPort().equals(
 									TransportPort.of(80))) {
+
 								Data data = (Data) tcp.getPayload();
 								byte[] bytes = data.getData();
 								
 								if(bytes.length > 0){
+									logger.warn("TCP on top of GTP detected!");
+
 									String s = new String(bytes);
 									
 									if(s.contains("GET") && s.contains("HTTP") && s.contains("mp4")){
 										String host = "10.0.0.254";
 										logger.warn("HTTP GET detected, forwarding it to "+host);
 
-										DummyHTTPClient dummyClient = new DummyHTTPClient();
-										try {
-											dummyClient.connect(host, 80);
-											logger.warn("Local port used is "+dummyClient.getLocalPort());
-											
-											dummyClient.sendRequest(s);
-										} catch (IOException e) {
-											// TODO Auto-generated catch block
-											e.printStackTrace();
-										}
+										DummyHTTPClient dummyClient = new DummyHTTPClient(host, 80, s);
+										Thread t = new Thread(dummyClient);
+										t.start();
+										this.addResponseFlowMod(sw, dummyClient.getLocalPort(), dummyClient.getLocalAddress());
 										
 
 									}
@@ -136,11 +148,72 @@ public class HttpMatcher implements IFloodlightModule, IOFMessageListener {
 					}
 
 				}
+			} if (ip.getProtocol().equals(IpProtocol.TCP)) {
+				TCP tcp = (TCP) ip.getPayload();
+				
+				for (int localPort : this.flowModeList.keySet()) {
+					if (tcp.getDestinationPort().equals(
+							TransportPort.of(localPort))) {
+
+						Data data = (Data) tcp.getPayload();
+						byte[] bytes = data.getData();
+						
+						if(bytes.length > 0){
+							logger.warn("Intercepted TCP to localhost received outside of GTP.");
+
+							String s = new String(bytes);
+							logger.warn(s);
+						}
+					}
+				}
 			}
 		}
 
 		return Command.CONTINUE;
 	}
+
+	private void addResponseFlowMod(IOFSwitch sw, int localPort, InetAddress inetAddress) {
+		OFFactory myFactory = sw.getOFFactory();
+		
+		Match myMatch = myFactory
+				.buildMatch()
+//				.setExact(MatchField.ETH_TYPE, EthType.IPv4)
+				// .set
+				// .setMasked(MatchField.IPV4_SRC,
+				// IPv4AddressWithMask.of("192.168.0.1/24"))
+				.setMasked(MatchField.IPV4_SRC, IPv4AddressWithMask.of(IPv4Address.of((Inet4Address) inetAddress), IPv4Address.ofCidrMaskLength(32)))
+				.setExact(MatchField.IP_PROTO, IpProtocol.TCP)
+				.setExact(MatchField.TCP_DST, TransportPort.of(localPort))
+				.build();
+
+		List<OFAction> actionList = new ArrayList<OFAction>();
+		OFActions actions = myFactory.actions();
+		OFActionOutput output = actions.buildOutput()
+				.setMaxLen(0xFFffFFff)
+				.setPort(OFPort.CONTROLLER).build();
+		actionList.add(output);
+
+		OFFlowMod flowMod = myFactory.buildFlowAdd().setMatch(myMatch)
+				.setActions(actionList)
+				.setHardTimeout(3600)
+				.setIdleTimeout(10)
+				.setPriority(32768)
+				.build();
+
+		this.flowModeList.put(localPort, flowMod);
+		sw.write(flowMod);
+		sw.flush();
+	}
+	
+	private void delResponseFlowMod(IOFSwitch sw, int localPort) {
+		if(this.flowModeList.containsKey(localPort)){
+			OFFlowMod flowMod = this.flowModeList.get(localPort);
+			OFFlowDelete flowDelete = FlowModUtils.toFlowDelete(flowMod);
+			sw.write(flowDelete);
+			sw.flush();
+		}
+	}
+	
 
 	@Override
 	public Collection<Class<? extends IFloodlightService>> getModuleServices() {
@@ -164,6 +237,7 @@ public class HttpMatcher implements IFloodlightModule, IOFMessageListener {
 	@Override
 	public void init(FloodlightModuleContext context)
 			throws FloodlightModuleException {
+		this.flowModeList = new HashMap<Integer, OFFlowMod>();
 		floodlightProvider = context
 				.getServiceImpl(IFloodlightProviderService.class);
 
