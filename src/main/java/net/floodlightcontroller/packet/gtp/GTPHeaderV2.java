@@ -45,11 +45,15 @@ public class GTPHeaderV2 extends AbstractGTPHeader {
 	private int spareFlag;
 	private boolean teidFlag;
 	private boolean piggyBackingFlag;
-	private byte[] sequenceNumberV2;
+	private byte[] sequenceNumber;
 	private byte messageType;
 	private short totalLength;
 	private int teid;
 	private byte spare;
+	
+	public GTPHeaderV2(){
+		this.version = 2;
+	}
 
 	@Override
 	public byte[] serialize() {
@@ -68,7 +72,7 @@ public class GTPHeaderV2 extends AbstractGTPHeader {
 		}
 		
 		for(int i=0; i<3;i++){
-			bb.put(this.sequenceNumberV2[i]);	
+			bb.put(this.sequenceNumber[i]);	
 		}
 		bb.put(this.spare);
 		
@@ -77,7 +81,11 @@ public class GTPHeaderV2 extends AbstractGTPHeader {
 
 	@Override
 	public IGTPHeader deserialize(ByteBuffer bb, byte scratch) {
-		this.version = AbstractGTP.extractVersionFromScratch(scratch);
+		byte version = AbstractGTP.extractVersionFromScratch(scratch);
+		
+		if(version != this.version){
+			throw new RuntimeException("Expected version was "+this.version+". Wrong deserialization of the packet on parent.");
+		}
 		
 		byte flags = (byte) (scratch & GTP_FLAG_MASK);
 
@@ -93,7 +101,7 @@ public class GTPHeaderV2 extends AbstractGTPHeader {
 		}
 		
 		for(int i=0; i<3;i++){
-			this.sequenceNumberV2[i] = bb.get();	
+			this.sequenceNumber[i] = bb.get();	
 		}
 
 		//No extension headers according to 3GPP TS 29.274 V13.2.0 (2015-06) Section 5.2
@@ -138,6 +146,78 @@ public class GTPHeaderV2 extends AbstractGTPHeader {
 				+ this.spareFlag + "\t\n");
 
 		return buffer.toString();
+	}
+
+	public int getSpareFlag() {
+		return spareFlag;
+	}
+
+	public GTPHeaderV2 setSpareFlag(int spareFlag) {
+		this.spareFlag = spareFlag;
+		return this;
+	}
+
+	public boolean isTeidFlag() {
+		return teidFlag;
+	}
+
+	public GTPHeaderV2 setTeidFlag(boolean teidFlag) {
+		this.teidFlag = teidFlag;
+		return this;
+	}
+
+	public boolean isPiggyBackingFlag() {
+		return piggyBackingFlag;
+	}
+
+	public GTPHeaderV2 setPiggyBackingFlag(boolean piggyBackingFlag) {
+		this.piggyBackingFlag = piggyBackingFlag;
+		return this;
+	}
+
+	public byte getMessageType() {
+		return messageType;
+	}
+
+	public GTPHeaderV2 setMessageType(byte messageType) {
+		this.messageType = messageType;
+		return this;
+	}
+
+	public short getTotalLength() {
+		return totalLength;
+	}
+
+	public GTPHeaderV2 setTotalLength(short totalLength) {
+		this.totalLength = totalLength;
+		return this;
+	}
+
+	public int getTeid() {
+		return teid;
+	}
+
+	public GTPHeaderV2 setTeid(int teid) {
+		this.teid = teid;
+		return this;
+	}
+
+	public byte getSpare() {
+		return spare;
+	}
+
+	public GTPHeaderV2 setSpare(byte spare) {
+		this.spare = spare;
+		return this;
+	}
+
+	public byte[] getSequenceNumber() {
+		return sequenceNumber;
+	}
+
+	public GTPHeaderV2 setSequenceNumber(byte[] sequenceNumber) {
+		this.sequenceNumber = sequenceNumber;
+		return this;
 	}
 
 }

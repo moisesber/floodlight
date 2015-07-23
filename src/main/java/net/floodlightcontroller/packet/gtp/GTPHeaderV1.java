@@ -11,7 +11,8 @@ import net.floodlightcontroller.packet.PacketParsingException;
 
 public class GTPHeaderV1 extends AbstractGTPHeader {
 	
-    /**
+    private static final byte ECHO_RESPONSE_TYPE = (byte) 0x02;
+	/**
      * Got from 3GPP TS 29.060 V13.1.0 (2015-06) Section 6
      * GTPv1
      * ------------------------------------------
@@ -57,15 +58,18 @@ public class GTPHeaderV1 extends AbstractGTPHeader {
 	private boolean sequenceNumberFlag;
 	private boolean nPDUNumberFlag;
 	private byte messageType;
-	private short totalLength;
+	private short extraLength;
 	private int teid;
 	private byte nextExtHeader;
 	private byte nPDUNumber;
 	private short sequenceNumber;
 	private List<GTPExtHeader> extHeaders;
+	private byte recoveryRestartCounter;
+	private byte recoveryType;
 	
 	public GTPHeaderV1(){
 		extHeaders = new ArrayList<GTPExtHeader>();
+		this.version = 1;
 	}
 
 	@Override
@@ -73,15 +77,17 @@ public class GTPHeaderV1 extends AbstractGTPHeader {
 		byte[] data = createHeaderDataArray();
 
 		ByteBuffer bb = ByteBuffer.wrap(data);
+		
+		int version = (this.version << AbstractGTP.GTP_VERSION_SHIFT);
 
-		byte flags = (byte) ((this.version << AbstractGTP.GTP_VERSION_SHIFT)
+		byte flags = (byte) (version
 				+ (this.protocolType ? 16 : 0) + (this.reserved ? 8 : 0)
 				+ (this.extHeaderFlag ? 4 : 0)
 				+ (this.sequenceNumberFlag ? 2 : 0) + (this.nPDUNumberFlag ? 1
 				: 0));
 		bb.put(flags);
-		bb.putInt(this.messageType);
-		bb.putShort(this.totalLength);
+		bb.put(this.messageType);
+		bb.putShort(this.extraLength);
 		bb.putInt(this.teid);
 
 		if (this.extHeaderFlag || this.sequenceNumberFlag
@@ -97,13 +103,26 @@ public class GTPHeaderV1 extends AbstractGTPHeader {
 				bb.put(extHeader.serialize());
 			}
 		}
+		
+		
+		//According to section 7.7.11 in 3GPP TS 29.060 V13.1.0 (2015-06)
+		if(this.messageType == ECHO_RESPONSE_TYPE ){
+			//Mandatory fields for Echo Response messages according to Section 7.2.2
+			//from 3GPP TS 29.060 V13.1.0 (2015-06)			
+			bb.put(this.recoveryType);
+			bb.put(this.recoveryRestartCounter);
+		}
 
 		return data;
 	}
 
 	@Override
 	public IGTPHeader deserialize(ByteBuffer bb, byte scratch) throws PacketParsingException {
-		this.version = AbstractGTP.extractVersionFromScratch(scratch);
+		byte version = AbstractGTP.extractVersionFromScratch(scratch);
+		
+		if(version != this.version){
+			throw new RuntimeException("Expected version was "+this.version+". Wrong deserialization of the packet on parent.");
+		}
 
 		byte flags = (byte) (scratch & GTP_FLAG_MASK);
 
@@ -114,7 +133,7 @@ public class GTPHeaderV1 extends AbstractGTPHeader {
 		this.nPDUNumberFlag = ((flags & 1) != 0);
 
 		this.messageType = bb.get();
-		this.totalLength = bb.getShort();
+		this.extraLength = bb.getShort();
 
 		this.teid = bb.getInt();
 
@@ -153,17 +172,29 @@ public class GTPHeaderV1 extends AbstractGTPHeader {
 			}
 		}
 		
+		//According to section 7.7.11 in 3GPP TS 29.060 V13.1.0 (2015-06)
+		if(this.messageType == ECHO_RESPONSE_TYPE ){
+			//Mandatory fields for Echo Response messages according to Section 7.2.2
+			//from 3GPP TS 29.060 V13.1.0 (2015-06)
+			this.recoveryType = bb.get();
+			this.recoveryRestartCounter = bb.get();
+		}
+		
 		return this;
 	}
 
 	@Override
 	public int getSizeInBytes() {
-
+		
 		// Flags = 1
 		// Message Type = 1
 		// Length = 2
 		// teid = 4
 		int fixedHeaderSizeBytes = 1 + 1 + 2 + 4;
+		
+//		int numberOfExtraBytes = this.extraLength;
+
+		
 		if (this.extHeaderFlag || this.sequenceNumberFlag
 				|| this.nPDUNumberFlag) {
 			
@@ -171,6 +202,16 @@ public class GTPHeaderV1 extends AbstractGTPHeader {
 			// N-PDU number = 1
 			// Next Extension Header = 1
 			fixedHeaderSizeBytes += 2 + 1 + 1;
+		}
+		
+		//According to section 7.7.11 in 3GPP TS 29.060 V13.1.0 (2015-06)
+		if(this.messageType == ECHO_RESPONSE_TYPE ){
+			//Mandatory fields for Echo Response messages according to Section 7.2.2
+			//from 3GPP TS 29.060 V13.1.0 (2015-06)
+			
+			fixedHeaderSizeBytes += 2;
+//			this.recoveryType = bb.get();
+//			this.recoveryRestartCounter = bb.get();
 		}
 		
 		int numberOfExtraBytes = 0;
@@ -277,4 +318,131 @@ public class GTPHeaderV1 extends AbstractGTPHeader {
 
 	}
 
+
+	public boolean isProtocolType() {
+		return protocolType;
+	}
+
+	public GTPHeaderV1 setProtocolType(boolean protocolType) {
+		this.protocolType = protocolType;
+		return this;
+	}
+
+	public boolean isReserved() {
+		return reserved;
+	}
+
+	public GTPHeaderV1 setReserved(boolean reserved) {
+		this.reserved = reserved;
+		return this;
+	}
+
+	public boolean isExtHeaderFlag() {
+		return extHeaderFlag;
+	}
+
+	public GTPHeaderV1 setExtHeaderFlag(boolean extHeaderFlag) {
+		this.extHeaderFlag = extHeaderFlag;
+		return this;
+	}
+
+	public boolean isSequenceNumberFlag() {
+		return sequenceNumberFlag;
+	}
+
+	public GTPHeaderV1 setSequenceNumberFlag(boolean sequenceNumberFlag) {
+		this.sequenceNumberFlag = sequenceNumberFlag;
+		return this;
+	}
+
+	public boolean isnPDUNumberFlag() {
+		return nPDUNumberFlag;
+	}
+
+	public GTPHeaderV1 setnPDUNumberFlag(boolean nPDUNumberFlag) {
+		this.nPDUNumberFlag = nPDUNumberFlag;
+		return this;
+	}
+	
+	public byte getMessageType() {
+		return messageType;
+	}
+
+	public GTPHeaderV1 setMessageType(byte messageType) {
+		this.messageType = messageType;
+		return this;
+	}
+
+	public short getTotalLength() {
+		return extraLength;
+	}
+
+	public GTPHeaderV1 setTotalLength(short totalLength) {
+		this.extraLength = totalLength;
+		return this;
+	}
+	
+	public int getTeid() {
+		return teid;
+	}
+
+	public GTPHeaderV1 setTeid(int teid) {
+		this.teid = teid;
+		return this;
+	}
+
+	public byte getNextExtHeader() {
+		return nextExtHeader;
+	}
+
+	public GTPHeaderV1 setNextExtHeader(byte nextExtHeader) {
+		this.nextExtHeader = nextExtHeader;
+		return this;
+	}
+
+	public byte getnPDUNumber() {
+		return nPDUNumber;
+	}
+
+	public GTPHeaderV1 setnPDUNumber(byte nPDUNumber) {
+		this.nPDUNumber = nPDUNumber;
+		return this;
+	}
+	
+	public short getSequenceNumber() {
+		return sequenceNumber;
+	}
+
+	public GTPHeaderV1 setSequenceNumber(short sequenceNumber) {
+		this.sequenceNumber = sequenceNumber;
+		return this;
+	}
+
+	public List<GTPExtHeader> getExtHeaders() {
+		return extHeaders;
+	}
+
+	public GTPHeaderV1 setExtHeaders(List<GTPExtHeader> extHeaders) {
+		this.extHeaders = extHeaders;
+		return this;
+	}
+
+	public byte getRecoveryRestartCounter() {
+		return recoveryRestartCounter;
+	}
+
+	public GTPHeaderV1 setRecoveryRestartCounter(byte recoveryRestartCounter) {
+		this.recoveryRestartCounter = recoveryRestartCounter;
+		return this;
+	}
+
+	public byte getRecoveryType() {
+		return recoveryType;
+	}
+
+	public GTPHeaderV1 setRecoveryType(byte recoveryType) {
+		this.recoveryType = recoveryType;
+		return this;
+	}
+	
 }

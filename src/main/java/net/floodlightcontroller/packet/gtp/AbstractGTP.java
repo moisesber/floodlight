@@ -106,8 +106,13 @@ public abstract class AbstractGTP extends BasePacket {
 		return controlPacket;
 	}
 
-	protected IGTPHeader getHeader() {
+	public IGTPHeader getHeader() {
 		return header;
+	}
+
+	public AbstractGTP setHeader(IGTPHeader header) {
+		this.header = header;
+		return this;
 	}
 
 }
