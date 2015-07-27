@@ -4,6 +4,7 @@ import static org.junit.Assert.assertTrue;
 
 import java.util.Arrays;
 
+import net.floodlightcontroller.packet.gtp.AbstractGTP;
 import net.floodlightcontroller.packet.gtp.GTPCPacket;
 import net.floodlightcontroller.packet.gtp.GTPHeaderV1;
 import net.floodlightcontroller.packet.gtp.GTPUPacket;
@@ -79,6 +80,10 @@ public class GTPTest {
 	
     @Test
     public void testControlSerialize() {
+    	assertTrue(false);
+    	System.out.println("D(@*U)@U)D(WIU_D(QID_)QID_)WQID_)WQDIW_Q)DI");
+    	
+    	
 		IPacket echoReqPacket = new UDP()
 				.setSourcePort((short) UDP.GTP_CONTROL_PORT.getPort())
 				.setDestinationPort((short) UDP.GTP_CONTROL_PORT.getPort())
@@ -91,7 +96,9 @@ public class GTPTest {
 								.setnPDUNumberFlag(false)
 								.setMessageType((byte) 0x01)
 								.setTotalLength((short) 4).setTeid(0)
-								.setSequenceNumber((short) (0x2000))));
+//								.setSequenceNumber((short) (0x2000)))
+								.setSequenceNumber(new byte[] { (byte)0x20, (byte)0x00 }))
+								);
 
 		IPacket echoRespPacket = new UDP()
 				.setSourcePort((short) UDP.GTP_CONTROL_PORT.getPort())
@@ -105,7 +112,8 @@ public class GTPTest {
 								.setnPDUNumberFlag(false)
 								.setMessageType((byte) 0x02)
 								.setTotalLength((short) 6).setTeid(0)
-								.setSequenceNumber((short) (0x2000))
+//								.setSequenceNumber((short) (0x2000))
+								.setSequenceNumber(new byte[] { (byte)0x20, (byte)0x00 })
 								.setRecoveryType((byte) 0x0e)
 								.setRecoveryRestartCounter((byte) 0x01)));
         
@@ -125,6 +133,10 @@ public class GTPTest {
     
     @Test
     public void testDataSerialization() throws PacketParsingException{
+    	assertTrue(false);
+    	System.out.println("D(@*U)@U)D(WIU_D(QID_)QID_)WQID_)WQDIW_Q)DI");
+    	
+    	
     	
     	byte[] httpGETData = new byte[] {
     			
@@ -190,7 +202,8 @@ public class GTPTest {
 								.setMessageType((byte) 0xff)
 								.setTotalLength((short) 146)
 								.setTeid(1)
-								.setSequenceNumber((short) (0x0002)))
+//								.setSequenceNumber((short) (0x0002)))
+								.setSequenceNumber(new byte[] { (byte)0x00, (byte)0x02 }))
 								.setPayload(new IPv4().deserialize(httpGETData, 0, httpGETData.length)));
 		
 		
@@ -207,7 +220,8 @@ public class GTPTest {
 						.setMessageType((byte) 0xff)
 						.setTotalLength((short) 505)
 						.setTeid(1)
-						.setSequenceNumber((short) (0x002f)))
+//						.setSequenceNumber((short) (0x002f)))
+						.setSequenceNumber(new byte[] { (byte)0x00, (byte)0x2f }))
 						.setPayload(new IPv4().deserialize(http404Data, 0, http404Data.length)));
     	
         byte[] actualReq = httpGET.serialize();
@@ -227,6 +241,10 @@ public class GTPTest {
     
     @Test
     public void testDeserializeControl() throws PacketParsingException{
+    	assertTrue(false);
+    	System.out.println("D(@*U)@U)D(WIU_D(QID_)QID_)WQID_)WQDIW_Q)DI");
+    	
+    	
     	UDP echoReqPacket = new UDP();
     	echoReqPacket.deserialize(this.echoRequest, 0, this.echoRequest.length);
         
@@ -261,6 +279,10 @@ public class GTPTest {
     
     @Test
 	public void testDeserializeData() throws PacketParsingException {
+    	assertTrue(false);
+    	System.out.println("D(@*U)@U)D(WIU_D(QID_)QID_)WQID_)WQDIW_Q)DI");
+    	
+    	
 
 		IPacket httpGET = new UDP().deserialize(expectedGTPHttpGET, 0, expectedGTPHttpGET.length);
     	IPacket thePayload = httpGET.getPayload();
@@ -290,6 +312,55 @@ public class GTPTest {
 		assertTrue(Arrays.equals(expectedGTPHttpGET, actualReq));
 		assertTrue(Arrays.equals(expectedGTPHttp404, actualResp));
 	}
+    
+    @Test
+    public void testGetNextSequenceNumber(){
+    	
+    	
+    	AbstractGTP echoRespPacket = new GTPCPacket().setHeader(new GTPHeaderV1()
+						.setProtocolType(true).setReserved(false)
+						.setExtHeaderFlag(false)
+						.setSequenceNumberFlag(true)
+						.setnPDUNumberFlag(false)
+						.setMessageType((byte) 0x02)
+						.setTotalLength((short) 6).setTeid(0)
+						.setSequenceNumber(new byte[] { (byte)0x20, (byte)0x00 })
+						.setRecoveryType((byte) 0x0e)
+						.setRecoveryRestartCounter((byte) 0x01));
+		
+		assertTrue(Arrays.equals(echoRespPacket.getHeader().getSequenceNumber(), new byte[] { (byte)0x20, (byte)0x00 }));
+		assertTrue(Arrays.equals(echoRespPacket.getHeader().getNextSequenceNumber(), new byte[] { (byte)0x20, (byte)0x01 }));
+
+		
+		echoRespPacket.setHeader(new GTPHeaderV1().setProtocolType(true)
+				.setReserved(false).setExtHeaderFlag(false)
+				.setSequenceNumberFlag(true).setnPDUNumberFlag(false)
+				.setMessageType((byte) 0x02)
+				.setTotalLength((short) 6)
+				.setTeid(0)
+				// .setSequenceNumber((short) (0x2000))
+				.setSequenceNumber(new byte[] { (byte) 0xff, (byte) 0xfe })
+				.setRecoveryType((byte) 0x0e)
+				.setRecoveryRestartCounter((byte) 0x01));
+		
+		assertTrue(Arrays.equals(echoRespPacket.getHeader().getSequenceNumber(), new byte[] { (byte)0xff, (byte)0xfe }));
+		assertTrue(Arrays.equals(echoRespPacket.getHeader().getNextSequenceNumber(), new byte[] { (byte)0xff, (byte)0xff }));
+		
+		echoRespPacket.setHeader(new GTPHeaderV1().setProtocolType(true)
+				.setReserved(false).setExtHeaderFlag(false)
+				.setSequenceNumberFlag(true).setnPDUNumberFlag(false)
+				.setMessageType((byte) 0x02)
+				.setTotalLength((short) 6)
+				.setTeid(0)
+				// .setSequenceNumber((short) (0x2000))
+				.setSequenceNumber(new byte[] { (byte) 0xff, (byte) 0xff })
+				.setRecoveryType((byte) 0x0e)
+				.setRecoveryRestartCounter((byte) 0x01));
+		
+		assertTrue(Arrays.equals(echoRespPacket.getHeader().getSequenceNumber(), new byte[] { (byte)0xff, (byte)0xff }));
+		assertTrue(Arrays.equals(echoRespPacket.getHeader().getNextSequenceNumber(), new byte[] { (byte)0x00, (byte)0x00 }));
+		
+    }
     
     
     private void byteArrayToString(byte[] array){

@@ -46,6 +46,8 @@ import org.projectfloodlight.openflow.types.TransportPort;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import br.ufpe.gprt.floodlight.tcpsplicing.ClientTCPSplicingInfo;
+
 public class HttpMatcher implements IFloodlightModule, IOFMessageListener {
 
 	protected IFloodlightProviderService floodlightProvider;
@@ -99,7 +101,7 @@ public class HttpMatcher implements IFloodlightModule, IOFMessageListener {
 			if (ip.getProtocol().equals(IpProtocol.UDP)) {
 				UDP udp = (UDP) ip.getPayload();
 				
-				logger.warn("Packet in is UDP and has port S="+udp.getSourcePort()+" D="+udp.getDestinationPort());
+//				logger.warn("Packet in is UDP and has port S="+udp.getSourcePort()+" D="+udp.getDestinationPort());
 
 				if (udp.getSourcePort().equals(UDP.GTP_CLIENT_PORT)
 						|| udp.getSourcePort().equals(UDP.GTP_CONTROL_PORT)
@@ -107,6 +109,8 @@ public class HttpMatcher implements IFloodlightModule, IOFMessageListener {
 						|| udp.getDestinationPort()
 								.equals(UDP.GTP_CONTROL_PORT)) {
 					AbstractGTP gtp = (AbstractGTP) udp.getPayload();
+					
+//					this.updateSequenceNumber(gtp.get)
 					logger.warn("GTP RECEIVED!");
 					
 					if (!gtp.isControlPacket()) {
@@ -132,6 +136,13 @@ public class HttpMatcher implements IFloodlightModule, IOFMessageListener {
 									if(s.contains("GET") && s.contains("HTTP") && s.contains("mp4")){
 										String host = "10.0.0.2";
 										logger.warn("HTTP GET detected, forwarding it to "+host);
+										
+										ClientTCPSplicingInfo splicingInfo = new ClientTCPSplicingInfo();
+										splicingInfo.setContext(eth);
+										
+//										
+//										ACK -> seq
+//										seq -> ACK
 
 										//CHANGE THIS! TODO
 										//THIS IS UGLY AS HELL!
@@ -149,7 +160,7 @@ public class HttpMatcher implements IFloodlightModule, IOFMessageListener {
 				}
 			} if (ip.getProtocol().equals(IpProtocol.TCP)) {
 				TCP tcp = (TCP) ip.getPayload();
-				logger.warn("Intercepted TCP to localhost received outside of GTP.");
+				logger.warn("Intercepted TCP received outside of GTP. P="+tcp.getDestinationPort()+" A="+ip.getDestinationAddress());
 
 				for (int localPort : this.flowModeList.keySet()) {
 					if (tcp.getDestinationPort().equals(
@@ -170,19 +181,38 @@ public class HttpMatcher implements IFloodlightModule, IOFMessageListener {
 
 		return Command.CONTINUE;
 	}
-
-	public void addResponseFlowMod(IOFSwitch sw, int localPort, InetAddress inetAddress) {
+	
+	public void addSourceFlowModToController(IOFSwitch sw, int port, InetAddress inetAddress) {
+		MatchField<IPv4Address> destIPV4 = MatchField.IPV4_SRC;
+		MatchField<TransportPort> destTCP = MatchField.TCP_SRC;
+		MatchField<IpProtocol> ipProto = MatchField.IP_PROTO;
+		
 		OFFactory myFactory = sw.getOFFactory();
 		
+		addFlowModToController(sw, port, inetAddress, destIPV4, destTCP,
+				ipProto, myFactory);
+	}
+
+	public void addDestinationFlowModToController(IOFSwitch sw, int port, InetAddress inetAddress) {
+		MatchField<IPv4Address> destIPV4 = MatchField.IPV4_DST;
+		MatchField<TransportPort> destTCP = MatchField.TCP_DST;
+		MatchField<IpProtocol> ipProto = MatchField.IP_PROTO;
+		
+		OFFactory myFactory = sw.getOFFactory();
+		
+		addFlowModToController(sw, port, inetAddress, destIPV4, destTCP,
+				ipProto, myFactory);
+	}
+
+	private void addFlowModToController(IOFSwitch sw, int port,
+			InetAddress inetAddress, MatchField<IPv4Address> destIPV4,
+			MatchField<TransportPort> destTCP, MatchField<IpProtocol> ipProto,
+			OFFactory myFactory) {
 		Match myMatch = myFactory
 				.buildMatch()
-//				.setExact(MatchField.ETH_TYPE, EthType.IPv4)
-				// .set
-				// .setMasked(MatchField.IPV4_SRC,
-				// IPv4AddressWithMask.of("192.168.0.1/24"))
-				.setMasked(MatchField.IPV4_SRC, IPv4AddressWithMask.of(IPv4Address.of((Inet4Address) inetAddress), IPv4Address.ofCidrMaskLength(32)))
-				.setExact(MatchField.IP_PROTO, IpProtocol.TCP)
-				.setExact(MatchField.TCP_DST, TransportPort.of(localPort))
+				.setMasked(destIPV4, IPv4AddressWithMask.of(IPv4Address.of((Inet4Address) inetAddress), IPv4Address.ofCidrMaskLength(32)))
+				.setExact(ipProto, IpProtocol.TCP)
+				.setExact(destTCP, TransportPort.of(port))
 				.build();
 
 		List<OFAction> actionList = new ArrayList<OFAction>();
@@ -199,7 +229,7 @@ public class HttpMatcher implements IFloodlightModule, IOFMessageListener {
 				.setPriority(32768)
 				.build();
 
-		this.flowModeList.put(localPort, flowMod);
+		this.flowModeList.put(port, flowMod);
 		sw.write(flowMod);
 		sw.flush();
 	}

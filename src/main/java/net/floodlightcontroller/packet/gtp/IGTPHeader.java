@@ -23,4 +23,8 @@ public interface IGTPHeader {
 	 */
 	public int getSizeInBytes();
 	
+	public byte[] getNextSequenceNumber();
+	
+	public byte[] getSequenceNumber();
+	
 }

@@ -66,7 +66,7 @@ public class DummyHTTPClient implements Runnable {
 		this.socks = new Socket();
 		socks.connect(new InetSocketAddress(host, port));
 		
-		this.httpMatcher.addResponseFlowMod(sw, this.getLocalPort(), this.getLocalAddress());
+		this.httpMatcher.addDestinationFlowModToController(sw, this.getLocalPort(), this.getLocalAddress());
 		return this.socks.getLocalPort();
 	}
 	

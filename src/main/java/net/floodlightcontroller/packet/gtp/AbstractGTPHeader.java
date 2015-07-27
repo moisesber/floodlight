@@ -18,4 +18,7 @@ public abstract class AbstractGTPHeader implements IGTPHeader {
 	}
 
 	public abstract int getSizeInBytes();
+	
+	public abstract byte[] getNextSequenceNumber();
+
 }
