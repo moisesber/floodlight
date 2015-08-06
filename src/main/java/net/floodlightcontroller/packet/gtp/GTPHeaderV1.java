@@ -65,7 +65,6 @@ public class GTPHeaderV1 extends AbstractGTPHeader {
 	private int teid;
 	private byte nextExtHeader;
 	private byte nPDUNumber;
-	private byte[] sequenceNumber;
 	private List<GTPV1ExtHeader> extHeaders;
 	private byte recoveryRestartCounter;
 	private byte recoveryType;
@@ -136,6 +135,10 @@ public class GTPHeaderV1 extends AbstractGTPHeader {
 		this.nPDUNumberFlag = ((flags & 1) != 0);
 
 		this.messageType = bb.get();
+		
+		//Length of all extra data in the packet
+		//According to 3GPP TS 29.060 V13.1.0 (2015-06) Section 6
+		//The Sequence Number, the N-PDU Number or any Extension headers shall be considered to be part of the payload, i.e. included in the length count.
 		this.extraLength = bb.getShort();
 
 		this.teid = bb.getInt();
@@ -451,12 +454,12 @@ public class GTPHeaderV1 extends AbstractGTPHeader {
 		//I did this due to short being signed and 
 		byte[] intSeqNumberByteArray = Arrays.copyOf(SIZE2_ZERO_BYTE_ARRAY, SIZE2_ZERO_BYTE_ARRAY.length + this.sequenceNumber.length);
 		System.arraycopy(this.sequenceNumber, 0, intSeqNumberByteArray, SIZE2_ZERO_BYTE_ARRAY.length, this.sequenceNumber.length);
-		  
-		int seqNumber = ByteBuffer.allocate(4).put(intSeqNumberByteArray).getInt();
+		
+		int seqNumber = ((ByteBuffer)ByteBuffer.allocate(4).put(intSeqNumberByteArray).rewind()).getInt();
 		//The Sequence Number value shall be wrapped to zero after 65535 
 		//according to  3GPP TS 29.060 V13.1.0 (2015-06) Section 9.3.1.1
 		seqNumber++;
-		if(seqNumber >= 65535){
+		if(seqNumber > 65535){
 			seqNumber = 0;
 		}
 		
@@ -469,5 +472,10 @@ public class GTPHeaderV1 extends AbstractGTPHeader {
 
 		
 	}
-	
+
+	@Override
+	public void updateLength(IPacket oldPayload, IPacket newPayload) {
+		this.extraLength = (short)((this.extraLength - oldPayload.serialize().length) + newPayload.serialize().length);
+	}
+
 }

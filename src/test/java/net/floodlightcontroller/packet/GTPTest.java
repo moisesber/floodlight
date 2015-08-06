@@ -76,13 +76,12 @@ public class GTPTest {
     		(byte)0x08, (byte)0x4b, (byte)0x08, (byte)0x4b, (byte)0x00, (byte)0x16, (byte)0x15, (byte)0x26, (byte)0x32, (byte)0x02, (byte)0x00, (byte)0x06, (byte)0x00, (byte)0x00,
     		(byte)0x00, (byte)0x00, (byte)0x20, (byte)0x00, (byte)0x00, (byte)0x00, (byte)0x0e, (byte)0x01};
 
+	private boolean debug = false;
+
 
 	
     @Test
     public void testControlSerialize() {
-    	assertTrue(false);
-    	System.out.println("D(@*U)@U)D(WIU_D(QID_)QID_)WQID_)WQDIW_Q)DI");
-    	
     	
 		IPacket echoReqPacket = new UDP()
 				.setSourcePort((short) UDP.GTP_CONTROL_PORT.getPort())
@@ -133,10 +132,6 @@ public class GTPTest {
     
     @Test
     public void testDataSerialization() throws PacketParsingException{
-    	assertTrue(false);
-    	System.out.println("D(@*U)@U)D(WIU_D(QID_)QID_)WQID_)WQDIW_Q)DI");
-    	
-    	
     	
     	byte[] httpGETData = new byte[] {
     			
@@ -241,9 +236,6 @@ public class GTPTest {
     
     @Test
     public void testDeserializeControl() throws PacketParsingException{
-    	assertTrue(false);
-    	System.out.println("D(@*U)@U)D(WIU_D(QID_)QID_)WQID_)WQDIW_Q)DI");
-    	
     	
     	UDP echoReqPacket = new UDP();
     	echoReqPacket.deserialize(this.echoRequest, 0, this.echoRequest.length);
@@ -279,10 +271,6 @@ public class GTPTest {
     
     @Test
 	public void testDeserializeData() throws PacketParsingException {
-    	assertTrue(false);
-    	System.out.println("D(@*U)@U)D(WIU_D(QID_)QID_)WQID_)WQDIW_Q)DI");
-    	
-    	
 
 		IPacket httpGET = new UDP().deserialize(expectedGTPHttpGET, 0, expectedGTPHttpGET.length);
     	IPacket thePayload = httpGET.getPayload();
@@ -329,7 +317,13 @@ public class GTPTest {
 						.setRecoveryRestartCounter((byte) 0x01));
 		
 		assertTrue(Arrays.equals(echoRespPacket.getHeader().getSequenceNumber(), new byte[] { (byte)0x20, (byte)0x00 }));
-		assertTrue(Arrays.equals(echoRespPacket.getHeader().getNextSequenceNumber(), new byte[] { (byte)0x20, (byte)0x01 }));
+		byte[] next = echoRespPacket.getHeader().getNextSequenceNumber();
+		
+        byteArrayToString(echoRespPacket.getHeader().getSequenceNumber());
+        byteArrayToString(next);
+		assertTrue(Arrays.equals(next, new byte[] { (byte)0x20, (byte)0x01 }));
+		
+
 
 		
 		echoRespPacket.setHeader(new GTPHeaderV1().setProtocolType(true)
@@ -344,7 +338,11 @@ public class GTPTest {
 				.setRecoveryRestartCounter((byte) 0x01));
 		
 		assertTrue(Arrays.equals(echoRespPacket.getHeader().getSequenceNumber(), new byte[] { (byte)0xff, (byte)0xfe }));
-		assertTrue(Arrays.equals(echoRespPacket.getHeader().getNextSequenceNumber(), new byte[] { (byte)0xff, (byte)0xff }));
+        byteArrayToString(echoRespPacket.getHeader().getSequenceNumber());
+		next = echoRespPacket.getHeader().getNextSequenceNumber();
+
+        byteArrayToString(next);
+		assertTrue(Arrays.equals(next, new byte[] { (byte)0xff, (byte)0xff }));
 		
 		echoRespPacket.setHeader(new GTPHeaderV1().setProtocolType(true)
 				.setReserved(false).setExtHeaderFlag(false)
@@ -358,12 +356,20 @@ public class GTPTest {
 				.setRecoveryRestartCounter((byte) 0x01));
 		
 		assertTrue(Arrays.equals(echoRespPacket.getHeader().getSequenceNumber(), new byte[] { (byte)0xff, (byte)0xff }));
-		assertTrue(Arrays.equals(echoRespPacket.getHeader().getNextSequenceNumber(), new byte[] { (byte)0x00, (byte)0x00 }));
+        byteArrayToString(echoRespPacket.getHeader().getSequenceNumber());
+		next = echoRespPacket.getHeader().getNextSequenceNumber();
+
+        byteArrayToString(next);
+		assertTrue(Arrays.equals(next, new byte[] { (byte)0x00, (byte)0x00 }));
 		
     }
     
     
     private void byteArrayToString(byte[] array){
+    	if(!debug){
+    		return;
+    	}
+    	
         System.out.println("-----");
 
     	for (int i = 0; i < array.length; i++) {
@@ -378,6 +384,10 @@ public class GTPTest {
     }
     
     private void compareArrays(byte[] array1, byte[] array2){
+    	if(!debug){
+    		return;
+    	}
+    	
     	if(array1.length != array2.length){
     		System.out.println("Different sizes!");
     	}

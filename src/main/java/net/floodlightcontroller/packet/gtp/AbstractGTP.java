@@ -114,6 +114,17 @@ public abstract class AbstractGTP extends BasePacket {
 		this.header = header;
 		return this;
 	}
+	
+    @Override
+    public IPacket setPayload(IPacket payload) {
+        if(this.header == null){
+			throw new RuntimeException("Setting payload in a malformed GTP Packet, no header info. Something really wrong happened.");
+		}
+        
+        this.header.updateLength(this.payload, payload);
+        this.payload = payload;
 
+        return this;
+    }
 	
 }

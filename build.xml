@@ -387,4 +387,55 @@
         </findbugs>
     </target>
 
+
+<target name="ensure-test-name" unless="test">
+    <fail message="You must run this target with -Dtest=TestName"/>
+</target>
+
+<target name="runtest" description="Runs the test you specify on the command 
+    line with -Dtest=" depends="compile-test, ensure-test-name">
+<junit fork="true" forkmode="once"
+           failureproperty="junit.failure"
+           printsummary="on">
+
+ <!--   <junit printsummary="withOutAnidErr" fork="yes"> 
+        <classpath refid="classpath" /> -->
+
+            <classpath>
+                <pathelement location="${build-coverage}"/>
+                <pathelement location="${build}"/>
+                <pathelement location="${resources}"/>
+                <pathelement location="${test-resources}"/>
+                <pathelement location="${build-test}"/>
+                <path refid="classpath-test"/>
+            </classpath>
+
+
+
+        <formatter type="plain" usefile="false"/>
+        
+            <batchtest todir="${test-output}">
+                <fileset dir="${source-test}">
+			<include name="**/${test}.java"/>
+                    <exclude name="**/storage/tests/StorageTest.java"/>
+                                  <!--  <include name="**/*Test*.java"/> -->
+                    <exclude name="**/core/test/**"/>
+                    <exclude name="**/core/module/**"/>
+                    <exclude name="**/util/FutureTestUtils.java"/> <!-- No tests here. Used within others that have Futures -->
+                    <exclude name="**/test/FloodlightTestCase.java"/> <!-- Base class for other tests. Can't run it individually. -->
+                    <exclude name="**/core/internal/OFSwitchHandlerTestBase.java"/> <!-- Abstract class used by protocol version handshake handlers. -->
+                </fileset>
+            </batchtest>
+
+
+<!-- <batchtest>
+            <fileset dir="${src}">
+                <include name="**/${test}.java"/>
+            </fileset>
+        </batchtest> -->
+    </junit>
+</target>
+
+
+
 </project>
