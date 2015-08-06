@@ -2,9 +2,9 @@ package net.floodlightcontroller.packet.gtp;
 
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 
-import net.floodlightcontroller.packet.BasePacket;
 import net.floodlightcontroller.packet.Data;
 import net.floodlightcontroller.packet.IPacket;
 import net.floodlightcontroller.packet.PacketParsingException;
@@ -50,6 +50,9 @@ public class GTPHeaderV1 extends AbstractGTPHeader {
 	 **/
 	
 //	public static final byte GTP_PROTOCOL_TYPE_MASK = 16;
+    
+    private static final byte[] SIZE2_ZERO_BYTE_ARRAY = { 0x00, 0x00 };
+
 	
 	//GTPv1 flags
 	private boolean protocolType;
@@ -62,13 +65,12 @@ public class GTPHeaderV1 extends AbstractGTPHeader {
 	private int teid;
 	private byte nextExtHeader;
 	private byte nPDUNumber;
-	private short sequenceNumber;
-	private List<GTPExtHeader> extHeaders;
+	private List<GTPV1ExtHeader> extHeaders;
 	private byte recoveryRestartCounter;
 	private byte recoveryType;
 	
 	public GTPHeaderV1(){
-		extHeaders = new ArrayList<GTPExtHeader>();
+		extHeaders = new ArrayList<GTPV1ExtHeader>();
 		this.version = 1;
 	}
 
@@ -95,11 +97,11 @@ public class GTPHeaderV1 extends AbstractGTPHeader {
 			// Extra fields are present
 			// They should be read, but interpreted only if
 			// Specific flags are set
-			bb.putShort(this.sequenceNumber);
+			bb.put(this.sequenceNumber);
 			bb.put(this.nPDUNumber);
 			bb.put(this.nextExtHeader);
 
-			for (GTPExtHeader extHeader : extHeaders) {
+			for (GTPV1ExtHeader extHeader : extHeaders) {
 				bb.put(extHeader.serialize());
 			}
 		}
@@ -133,6 +135,10 @@ public class GTPHeaderV1 extends AbstractGTPHeader {
 		this.nPDUNumberFlag = ((flags & 1) != 0);
 
 		this.messageType = bb.get();
+		
+		//Length of all extra data in the packet
+		//According to 3GPP TS 29.060 V13.1.0 (2015-06) Section 6
+		//The Sequence Number, the N-PDU Number or any Extension headers shall be considered to be part of the payload, i.e. included in the length count.
 		this.extraLength = bb.getShort();
 
 		this.teid = bb.getInt();
@@ -142,7 +148,9 @@ public class GTPHeaderV1 extends AbstractGTPHeader {
 			// Extra fields are present
 			// They should be read, but interpreted only if
 			// Specific flags are set
-			short seqNumber = bb.getShort();
+			byte[] seqNumber = new byte[2];
+			seqNumber[0] = bb.get();
+			seqNumber[1] = bb.get();
 			byte nPDUNum = bb.get();
 			byte nextHeader = bb.get();
 
@@ -156,13 +164,13 @@ public class GTPHeaderV1 extends AbstractGTPHeader {
 
 			if (this.extHeaderFlag) {
 				this.nextExtHeader = nextHeader;
-				extHeaders = new ArrayList<GTPExtHeader>();
+				extHeaders = new ArrayList<GTPV1ExtHeader>();
 			}
 
 			while (nextHeader != 0) {
 				// This means that there are extra headers to be read
 
-				GTPExtHeader extHeader = new GTPExtHeader();
+				GTPV1ExtHeader extHeader = new GTPV1ExtHeader();
 				extHeader.setVersion(this.version);
 //				extHeader.deserialize(bb.array(), bb.position(),
 //						bb.limit() - bb.position());
@@ -215,7 +223,7 @@ public class GTPHeaderV1 extends AbstractGTPHeader {
 		}
 		
 		int numberOfExtraBytes = 0;
-		for (GTPExtHeader extHeader : extHeaders) {
+		for (GTPV1ExtHeader extHeader : extHeaders) {
 			numberOfExtraBytes += extHeader.getN();
 		}
 
@@ -242,7 +250,7 @@ public class GTPHeaderV1 extends AbstractGTPHeader {
 	}
 	
 	
-	class GTPExtHeader implements IGTPHeader {
+	class GTPV1ExtHeader {
 
 		private byte n;
 		private byte nextExtHeaderType;
@@ -261,7 +269,6 @@ public class GTPHeaderV1 extends AbstractGTPHeader {
 			return nextExtHeaderType;
 		}
 
-		@Override
 		public byte[] serialize() {
 			byte[] data = new byte[(this.n*4)];
 			data[0] = this.n;
@@ -279,7 +286,7 @@ public class GTPHeaderV1 extends AbstractGTPHeader {
 			return this.payload;
 		}
 
-		public IGTPHeader deserialize(byte[] data, int offset, int length)
+		public GTPV1ExtHeader deserialize(byte[] data, int offset, int length)
 				throws PacketParsingException {
 			
 	        ByteBuffer bb = ByteBuffer.wrap(data, offset, length);
@@ -287,8 +294,7 @@ public class GTPHeaderV1 extends AbstractGTPHeader {
 	        return deserialize(bb, (byte) 0);
 		}
 
-		@Override
-		public IGTPHeader deserialize(ByteBuffer bb, byte scratch)
+		public GTPV1ExtHeader deserialize(ByteBuffer bb, byte scratch)
 				throws PacketParsingException {
 			//The number of octets according to 3GPP TS 29.060 V13.1.0 (2015-06) Section 6
 	        //The total number of octets, including the this.n, is this.n * 4
@@ -306,12 +312,10 @@ public class GTPHeaderV1 extends AbstractGTPHeader {
 			return this;
 		}
 
-		@Override
 		public byte getVersion() {
 			return this.version;
 		}
 
-		@Override
 		public int getSizeInBytes() {
 			return this.n;
 		}
@@ -409,20 +413,20 @@ public class GTPHeaderV1 extends AbstractGTPHeader {
 		return this;
 	}
 	
-	public short getSequenceNumber() {
+	public byte[] getSequenceNumber() {
 		return sequenceNumber;
 	}
 
-	public GTPHeaderV1 setSequenceNumber(short sequenceNumber) {
+	public GTPHeaderV1 setSequenceNumber(byte[] sequenceNumber) {
 		this.sequenceNumber = sequenceNumber;
 		return this;
 	}
 
-	public List<GTPExtHeader> getExtHeaders() {
+	public List<GTPV1ExtHeader> getExtHeaders() {
 		return extHeaders;
 	}
 
-	public GTPHeaderV1 setExtHeaders(List<GTPExtHeader> extHeaders) {
+	public GTPHeaderV1 setExtHeaders(List<GTPV1ExtHeader> extHeaders) {
 		this.extHeaders = extHeaders;
 		return this;
 	}
@@ -444,5 +448,34 @@ public class GTPHeaderV1 extends AbstractGTPHeader {
 		this.recoveryType = recoveryType;
 		return this;
 	}
-	
+
+	@Override
+	public byte[] getNextSequenceNumber() {
+		//I did this due to short being signed and 
+		byte[] intSeqNumberByteArray = Arrays.copyOf(SIZE2_ZERO_BYTE_ARRAY, SIZE2_ZERO_BYTE_ARRAY.length + this.sequenceNumber.length);
+		System.arraycopy(this.sequenceNumber, 0, intSeqNumberByteArray, SIZE2_ZERO_BYTE_ARRAY.length, this.sequenceNumber.length);
+		
+		int seqNumber = ((ByteBuffer)ByteBuffer.allocate(4).put(intSeqNumberByteArray).rewind()).getInt();
+		//The Sequence Number value shall be wrapped to zero after 65535 
+		//according to  3GPP TS 29.060 V13.1.0 (2015-06) Section 9.3.1.1
+		seqNumber++;
+		if(seqNumber > 65535){
+			seqNumber = 0;
+		}
+		
+		return ByteBuffer.allocate(2).putShort((short) seqNumber).array();
+
+		
+//		return new byte[] { (byte)seqNumber & 0xFF, (seqNumber >> 8) & 0xFF };
+		
+//		System.out.println("From "+ (Short.MIN_VALUE + Short.MAX_VALUE + 1)+" to "+ (Short.MAX_VALUE + Short.MAX_VALUE + 1));
+
+		
+	}
+
+	@Override
+	public void updateLength(IPacket oldPayload, IPacket newPayload) {
+		this.extraLength = (short)((this.extraLength - oldPayload.serialize().length) + newPayload.serialize().length);
+	}
+
 }

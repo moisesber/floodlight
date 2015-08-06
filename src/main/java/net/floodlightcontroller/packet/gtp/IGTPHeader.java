@@ -2,6 +2,7 @@ package net.floodlightcontroller.packet.gtp;
 
 import java.nio.ByteBuffer;
 
+import net.floodlightcontroller.packet.IPacket;
 import net.floodlightcontroller.packet.PacketParsingException;
 
 public interface IGTPHeader {
@@ -22,5 +23,13 @@ public interface IGTPHeader {
 	 * @return
 	 */
 	public int getSizeInBytes();
+	
+	public byte[] getNextSequenceNumber();
+	
+	public byte[] getSequenceNumber();
+	
+	public IGTPHeader setSequenceNumber(byte[] sequenceNumber);
+
+	public void updateLength(IPacket oldPayload, IPacket newPayload);
 	
 }

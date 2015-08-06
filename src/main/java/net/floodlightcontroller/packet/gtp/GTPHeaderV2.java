@@ -1,9 +1,13 @@
 package net.floodlightcontroller.packet.gtp;
 
 import java.nio.ByteBuffer;
+import java.util.Arrays;
+
+import net.floodlightcontroller.packet.IPacket;
 
 public class GTPHeaderV2 extends AbstractGTPHeader {
 	
+    private static final byte[] SIZE1_ZERO_BYTE_ARRAY = { 0x00 };
 	/**
 	 * 
 	 * GTPv2 as seen in 3GPP TS 29.274 V13.2.0 (2015-06)
@@ -45,7 +49,6 @@ public class GTPHeaderV2 extends AbstractGTPHeader {
 	private int spareFlag;
 	private boolean teidFlag;
 	private boolean piggyBackingFlag;
-	private byte[] sequenceNumber;
 	private byte messageType;
 	private short totalLength;
 	private int teid;
@@ -218,6 +221,34 @@ public class GTPHeaderV2 extends AbstractGTPHeader {
 	public GTPHeaderV2 setSequenceNumber(byte[] sequenceNumber) {
 		this.sequenceNumber = sequenceNumber;
 		return this;
+	}
+
+	@Override
+	public byte[] getNextSequenceNumber() {
+		//I did this due to short being signed and 
+		byte[] intSeqNumberByteArray = Arrays.copyOf(SIZE1_ZERO_BYTE_ARRAY, SIZE1_ZERO_BYTE_ARRAY.length + this.sequenceNumber.length);
+		System.arraycopy(this.sequenceNumber, 0, intSeqNumberByteArray, SIZE1_ZERO_BYTE_ARRAY.length, this.sequenceNumber.length);
+		  
+		int seqNumber = ((ByteBuffer)ByteBuffer.allocate(4).put(intSeqNumberByteArray).rewind()).getInt();
+		//I could not find a reference to the max value in 3GPP TS 29.274 V13.2.0 (2015-06)
+		//Using (2^24) - 1
+		seqNumber++;
+		if(seqNumber >= 16777216){
+			seqNumber = 0;
+		}
+		
+		byte[] result = new byte[3];
+		
+		result[0] = (byte) ((seqNumber >> 24) & 0xFF);
+		result[1] = (byte) ((seqNumber >> 16) & 0xFF);
+		result[2] = (byte) ((seqNumber >> 8) & 0xFF);
+		
+		return result;
+	}
+
+	@Override
+	public void updateLength(IPacket oldPayload, IPacket newPayload) {
+		this.totalLength = (short)((this.totalLength - oldPayload.serialize().length) + newPayload.serialize().length);
 	}
 
 }

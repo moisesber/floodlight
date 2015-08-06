@@ -4,8 +4,8 @@ package net.floodlightcontroller.packet.gtp;
 public abstract class AbstractGTPHeader implements IGTPHeader {
 	
 	public static final short GTP_FLAG_MASK = (1 << AbstractGTP.GTP_VERSION_SHIFT) - 1;
-	protected byte version;
-	
+	protected byte version;	
+	protected byte[] sequenceNumber;
 	
 	protected byte[] createHeaderDataArray() {
 		byte[] data = new byte[getSizeInBytes()];
@@ -18,4 +18,13 @@ public abstract class AbstractGTPHeader implements IGTPHeader {
 	}
 
 	public abstract int getSizeInBytes();
+	
+	public abstract byte[] getNextSequenceNumber();
+	
+	@Override
+	public IGTPHeader setSequenceNumber(byte[] sequenceNumber) {
+		this.sequenceNumber = sequenceNumber;
+		return this;
+	}
+
 }
