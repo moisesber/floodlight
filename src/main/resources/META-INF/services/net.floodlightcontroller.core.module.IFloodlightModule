@@ -29,4 +29,4 @@ net.floodlightcontroller.dhcpserver.DHCPServer
 net.floodlightcontroller.learningswitch.LearningSwitch
 br.ufpe.gprt.floodlight.flowMods.HTTPTrafficFlowModifier
 br.ufpe.gprt.floodlight.flowMods.GTPTrafficFlowModifier
-br.ufpe.gprt.floodlight.transparentCache.HttpTransparentCache
+br.ufpe.gprt.floodlight.transparentCache.HTTPSplicerModule
