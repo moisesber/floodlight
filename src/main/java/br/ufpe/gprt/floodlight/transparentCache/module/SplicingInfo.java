@@ -1,9 +1,15 @@
 package br.ufpe.gprt.floodlight.transparentCache.module;
 
+import java.nio.ByteBuffer;
+
 import net.floodlightcontroller.core.IOFSwitch;
+import net.floodlightcontroller.packet.Data;
 import net.floodlightcontroller.packet.Ethernet;
+import net.floodlightcontroller.packet.IPacket;
 import net.floodlightcontroller.packet.IPv4;
 import net.floodlightcontroller.packet.TCP;
+import net.floodlightcontroller.packet.UDP;
+import net.floodlightcontroller.packet.gtp.AbstractGTP;
 
 import org.projectfloodlight.openflow.types.EthType;
 import org.projectfloodlight.openflow.types.IPv4Address;
@@ -28,6 +34,8 @@ public class SplicingInfo {
 	private int toClientTSValue;
 	private int toClientTSecr;
 	private IOFSwitch cacheSw;
+	private GTPContext gtpContext;
+	private Ethernet clientToCacheContext;
 
 	public SplicingInfo(IPv4Address clientAddress, int clientPort, IPv4Address originAddress, int originPort, 
 			IOFSwitch clientSw, IPv4Address cacheAddress, int cachePort, TCP tcp, MacAddress clientMacAddress, MacAddress originMacAddress) {
@@ -43,6 +51,7 @@ public class SplicingInfo {
 				this.originMacAddress = originMacAddress;
 				this.state = SplicingState.Created;
 				this.initialOriginSequenceNumber = 0;
+				this.gtpContext = null;
 	}
 
 	public IOFSwitch getClientSw() {
@@ -178,5 +187,159 @@ public class SplicingInfo {
 
 	public IOFSwitch getCacheSw() {
 		return cacheSw;
+	}
+
+	public void registerGTPContext(Ethernet eth) {
+		
+		if (eth.getEtherType().equals(EthType.IPv4)) {
+			IPv4 ip = (IPv4) eth.getPayload();
+			
+			if(ip.getProtocol().equals(IpProtocol.UDP)){
+				UDP udp = (UDP) ip.getPayload();
+				
+				if (udp.getSourcePort().equals(UDP.GTP_CLIENT_PORT)
+						|| udp.getDestinationPort().equals(UDP.GTP_CLIENT_PORT)) {
+					AbstractGTP gtp = (AbstractGTP) udp.getPayload();
+					
+					IPv4 gtpIp = (IPv4) gtp.getPayload();
+					
+					this.gtpContext = new GTPContext(eth, ip, udp, gtp, gtpIp);
+				}
+			}
+		}
+		
+	}
+	
+	public boolean isGTPTunneled(){
+		return this.gtpContext != null;
+	}
+	
+	public GTPContext getGtpContext() {
+		return gtpContext;
+	}
+
+	class GTPContext {
+		
+		public GTPContext(Ethernet eth2, IPv4 ip2, UDP udp2, AbstractGTP gtp2,
+				IPv4 gtpIp2) {
+					eth = eth2;
+					ip = ip2;
+					udp = udp2;
+					gtp = gtp2;
+					gtpIP = gtpIp2;
+		}
+		Ethernet eth;
+		IPv4 ip;
+		UDP udp;
+		AbstractGTP gtp;
+		IPv4 gtpIP;
+		
+		
+		
+		
+		
+		private byte[] shortToByteArray(short s){
+			byte[] bytes = new byte[2];
+			bytes[0] = (byte)(s & 0xff);
+			bytes[1] = (byte)((s >> 8) & 0xff);
+			
+			return bytes;
+		}
+
+
+
+
+
+		public Ethernet[] getTunneledData(IPv4 ip, TCP tcp) {
+			Data payloadData = (Data)tcp.getPayload();
+			Ethernet cloneEth = (Ethernet) this.eth.clone();
+			IPv4 cloneIP = (IPv4)this.ip.clone();
+			UDP cloneUDP = (UDP)this.udp.clone();
+			AbstractGTP cloneGTP = (AbstractGTP)this.gtp.clone();
+//			IPv4 cloneGTPIP = (IPv4)gtpIP.clone();
+			
+			cloneIP.setIdentification(ip.getIdentification());
+//			cloneIP.setIdentification((short)0);
+			cloneGTP.getHeader().setSequenceNumber(shortToByteArray(cloneIP.getIdentification()));
+//			cloneGTP.getHeader().setSequenceNumber(new byte[] { 0, 0 });
+			
+			
+			//rebuilding stack
+			cloneEth.setPayload(cloneIP);
+			cloneIP.setParent(cloneEth);
+			cloneIP.setPayload(cloneUDP);
+			
+			cloneUDP.setParent(cloneIP);
+			cloneUDP.setPayload(cloneGTP);
+			cloneGTP.setParent(cloneUDP);
+			
+			ip.setPayload(tcp);
+			tcp.setParent(ip);
+			
+			
+			cloneGTP.setPayload(ip);
+			ip.setParent(cloneGTP);
+			
+			
+			tcp.resetChecksum();
+//			if(payloadData.getData().length > 0){
+//				cloneIP.setFlags((byte)0x01);
+//				Data data = new Data(tcp.serialize());
+//				cloneIP.setPayload(data);
+//				data.setParent(cloneIP);
+//				
+//				Ethernet cloneEthFragment = (Ethernet) cloneEth.clone();
+//				cloneIP.setFlags((byte)0x00);
+//				System.out.println("Setting offset "+ ((short) data.getData().length));
+//				System.out.println("Setting offset "+ (new Integer( data.getData().length )).shortValue() );
+//
+//				cloneIP.setFragmentOffset((new Integer( data.getData().length / 8) ).shortValue() );
+////				cloneIP.setFragmentOffset((short) 1);
+//
+//				cloneIP.setPayload(cloneUDP);
+//				Data zeroData = new Data(new byte[0]);
+//				ip.setPayload(zeroData);
+//				zeroData.setParent(ip);
+//				
+//				ip.resetChecksum();
+////				cloneIP.resetChecksum();
+//
+//				return new Ethernet[] { cloneEthFragment, cloneEth };
+//				
+////				Ethernet cloneEthFragment = (Ethernet) this.eth.clone();
+////				IPv4 cloneIPFragment = (IPv4)this.ip.clone();
+////				
+////				cloneIPFragment.setFlags((byte)0x00);
+////				cloneIPFragment.setFragmentOffset((short)data.getData().length);
+////				UDP cloneUDPFragment = (UDP)cloneUDP.clone();
+////				AbstractGTP cloneGTPFragment = (AbstractGTP)cloneGTP.clone();
+////				IPv4 cloneGTPIPFragment = (IPv4)ip.clone();
+////				TCP cloneTCPFragment = (TCP)tcp.clone();
+////				
+////				
+////				
+////				
+////				cloneGTPIPFragment.setPayload(cloneTCPFragment);
+////				cloneTCPFragment.setParent(cloneGTPIPFragment);
+////				
+////				cloneGTPFragment.setPayload(cloneGTPIPFragment);
+////				cloneGTPIPFragment.setParent(cloneGTPFragment);
+//				
+//				
+//			}
+			
+			return new Ethernet[] { cloneEth };
+		}
+		
+	}
+	
+	
+	public Ethernet getClientToCacheContext() {
+		return clientToCacheContext;
+	}
+
+	public void registerClientToCacheContext(Ethernet eth) {
+		eth.setPayload(null);
+		this.clientToCacheContext = eth;
 	}
 }

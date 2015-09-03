@@ -50,7 +50,6 @@ public class GTPHeaderV2 extends AbstractGTPHeader {
 	private boolean teidFlag;
 	private boolean piggyBackingFlag;
 	private byte messageType;
-	private short totalLength;
 	private int teid;
 	private byte spare;
 	
@@ -244,11 +243,6 @@ public class GTPHeaderV2 extends AbstractGTPHeader {
 		result[2] = (byte) ((seqNumber >> 8) & 0xFF);
 		
 		return result;
-	}
-
-	@Override
-	public void updateLength(IPacket oldPayload, IPacket newPayload) {
-		this.totalLength = (short)((this.totalLength - oldPayload.serialize().length) + newPayload.serialize().length);
 	}
 
 }

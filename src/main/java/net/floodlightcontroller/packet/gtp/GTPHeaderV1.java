@@ -61,7 +61,6 @@ public class GTPHeaderV1 extends AbstractGTPHeader {
 	private boolean sequenceNumberFlag;
 	private boolean nPDUNumberFlag;
 	private byte messageType;
-	private short extraLength;
 	private int teid;
 	private byte nextExtHeader;
 	private byte nPDUNumber;
@@ -89,7 +88,7 @@ public class GTPHeaderV1 extends AbstractGTPHeader {
 				: 0));
 		bb.put(flags);
 		bb.put(this.messageType);
-		bb.putShort(this.extraLength);
+		bb.putShort(this.totalLength);
 		bb.putInt(this.teid);
 
 		if (this.extHeaderFlag || this.sequenceNumberFlag
@@ -139,7 +138,7 @@ public class GTPHeaderV1 extends AbstractGTPHeader {
 		//Length of all extra data in the packet
 		//According to 3GPP TS 29.060 V13.1.0 (2015-06) Section 6
 		//The Sequence Number, the N-PDU Number or any Extension headers shall be considered to be part of the payload, i.e. included in the length count.
-		this.extraLength = bb.getShort();
+		this.totalLength = bb.getShort();
 
 		this.teid = bb.getInt();
 
@@ -378,11 +377,11 @@ public class GTPHeaderV1 extends AbstractGTPHeader {
 	}
 
 	public short getTotalLength() {
-		return extraLength;
+		return totalLength;
 	}
 
 	public GTPHeaderV1 setTotalLength(short totalLength) {
-		this.extraLength = totalLength;
+		this.totalLength = totalLength;
 		return this;
 	}
 	
@@ -471,11 +470,6 @@ public class GTPHeaderV1 extends AbstractGTPHeader {
 //		System.out.println("From "+ (Short.MIN_VALUE + Short.MAX_VALUE + 1)+" to "+ (Short.MAX_VALUE + Short.MAX_VALUE + 1));
 
 		
-	}
-
-	@Override
-	public void updateLength(IPacket oldPayload, IPacket newPayload) {
-		this.extraLength = (short)((this.extraLength - oldPayload.serialize().length) + newPayload.serialize().length);
 	}
 
 }

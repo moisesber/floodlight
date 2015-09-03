@@ -25,6 +25,8 @@ import net.floodlightcontroller.packet.Ethernet;
 import net.floodlightcontroller.packet.IPacket;
 import net.floodlightcontroller.packet.IPv4;
 import net.floodlightcontroller.packet.TCP;
+import net.floodlightcontroller.packet.UDP;
+import net.floodlightcontroller.packet.gtp.AbstractGTP;
 
 import org.projectfloodlight.openflow.protocol.OFFactory;
 import org.projectfloodlight.openflow.protocol.OFFlowMod;
@@ -44,26 +46,15 @@ import org.projectfloodlight.openflow.types.TransportPort;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import com.google.common.primitives.UnsignedInteger;
-import com.google.common.primitives.UnsignedInts;
-
 public class HTTPGETSplicerModule implements IFloodlightModule, IOFMessageListener {
-	
-	
-	class IPIDTag {
-		
-		IPv4Address sourceAddress;
-		
-	}
 	
 	protected IFloodlightProviderService floodlightProvider;
 	protected IOFSwitchService switchService;
-//	private Map<Integer, TCPClient> connectedDummyClients;
-//	private Map<IPv4Address, Map<Integer, TCPSectionContext>> payloadContext;
 	private List<Inet4Address> localCaches;
 	private TCPContextAnalyzer tcpContextAnalyzer;
-	private Map<IPv4Address, Short> lastIDFromIPSource;
+	private TransportContext transportContextManager;
 	private Map<TCPIPConnection, SplicingInfo> splicingClients;
+	private int checksumRecalculations;
 
 
 	protected static Logger logger;
@@ -88,9 +79,7 @@ public class HTTPGETSplicerModule implements IFloodlightModule, IOFMessageListen
 	@Override
 	public net.floodlightcontroller.core.IListener.Command receive(
 			IOFSwitch sw, OFMessage msg, FloodlightContext cntx) {
-		logger.warn("Packet In...");
-
-//		OFPacketIn pin = (OFPacketIn) msg;
+		
 		Ethernet eth = IFloodlightProviderService.bcStore.get(cntx,
 				IFloodlightProviderService.CONTEXT_PI_PAYLOAD);
 
@@ -100,221 +89,353 @@ public class HTTPGETSplicerModule implements IFloodlightModule, IOFMessageListen
 			if (ip.getProtocol().equals(IpProtocol.TCP)) {
 				TCP tcp = (TCP) ip.getPayload();
 				
+				return handleTraffic(sw, eth, ip, tcp);				
+			} else if(ip.getProtocol().equals(IpProtocol.UDP)){
+				UDP udp = (UDP) ip.getPayload();
 				
-				//Registering all TCP traffic for now.
-				//In the future, we should restrict to only TCP traffic to 
-				//port 80 and to destinationAddress == oneOfTheknownHTTPServers
-
-				int sourcePort = tcp.getSourcePort().getPort();
-				IPv4Address sourceAddress = ip.getSourceAddress();
-				int destinationPort = tcp.getDestinationPort().getPort();
-				IPv4Address destinationAddress = ip.getDestinationAddress();
-				
-				TCPIPConnection sourceTCPIPId = new TCPIPConnection(sourceAddress, sourcePort);
-				TCPIPConnection dstTCPIPId = new TCPIPConnection(destinationAddress, destinationPort);
-
-				this.lastIDFromIPSource.put(sourceAddress, ip.getIdentification());
-				
-
-				
-				if(isFromLocalCache(sourceAddress)){
-					//Content from local cache
-					logger.warn("Receiving something from cache "+sourceAddress+" destination is "+dstTCPIPId);
+				if (udp.getSourcePort().equals(UDP.GTP_CLIENT_PORT)
+						|| udp.getDestinationPort().equals(UDP.GTP_CLIENT_PORT)) {
+					AbstractGTP gtp = (AbstractGTP) udp.getPayload();
 					
-					if(this.splicingClients.containsKey(dstTCPIPId)){
-						SplicingInfo info = this.splicingClients.get(dstTCPIPId);
+					IPv4 gtpIP = (IPv4) gtp.getPayload();
+					
+					if (gtpIP.getProtocol().equals(IpProtocol.TCP)) {
+						TCP gtpTCP = (TCP)gtpIP.getPayload();
 						
-						logger.warn("From cache and destination is a splicing client "+dstTCPIPId+" splicing state = "+info.getState());
-						
-						if(info.getState().equals(SplicingState.Connected)){
-							Ethernet cloneEth = (Ethernet)eth.clone();
-							IPv4 cloneIP = (IPv4)ip.clone();
-							TCP cloneTCP = (TCP)tcp.clone();
-
-							cloneIP.setSourceAddress(info.getOriginAddress());
-							cloneTCP.setSourcePort(info.getOriginPort());
-							
-							logger.warn("Before it was Seq="+cloneTCP.getSequence());
-
-							try{
-								UnsignedInteger tcpSeq = UnsignedInteger.asUnsigned(tcp.getSequence());
-								UnsignedInteger initialSeqFromSYNACK = UnsignedInteger.asUnsigned(info.getInitialSEQFromSYNACK());
-								UnsignedInteger initialOriginSeq = UnsignedInteger.asUnsigned(info.getInitialOriginSequenceNumber());
-								int seq = tcpSeq.subtract(initialSeqFromSYNACK).add(initialOriginSeq).subtract(UnsignedInteger.ONE).intValue();
-
-//								int seq = (tcp.getSequence() - info.getInitialSEQFromSYNACK()) + info.getInitialOriginSequenceNumber() - 1; 
-								cloneTCP.setSequence(seq);
-							} catch (IllegalArgumentException e){
-								e.printStackTrace();
-							}
-							logger.warn("After it was Seq="+cloneTCP.getSequence());
-
-							byte[] options = this.tcpContextAnalyzer.getOptionsWithNewTsValues(info.getToClientTSValue(), info.getToClientTSecr(), tcp.getOptions());
-							cloneTCP.setOptions(options);
-
-							cloneEth.setDestinationMACAddress(info.getClientMacAddress());
-							cloneEth.setSourceMACAddress(info.getOriginMacAddress());
-							
-							cloneIP.setPayload(cloneTCP);
-							cloneTCP.setParent(cloneIP);
-							cloneEth.setPayload(cloneIP);
-							cloneIP.setParent(cloneEth);
-
-							
-							short before = cloneTCP.getChecksum();
-							cloneTCP.resetChecksum();
-							cloneTCP.serialize();
-							short once = cloneTCP.getChecksum();
-							cloneTCP.resetChecksum();
-							cloneTCP.serialize();
-							short twice = cloneTCP.getChecksum();
-							
-							short[] checksums = this.getChecksum(cloneTCP);
-
-							if(once != twice || once != checksums[2]){
-								logger.warn("different checksums!!! @#@#@$$@$@$");
-							}
-							
-							cloneTCP.setChecksum(checksums[2]);
-							
-							
-
-							
-							logger.warn("Reseting the checksum to splicing client "+dstTCPIPId+" splicing state = "+info.getState()+" Ocks="+Integer.toHexString(tcp.getChecksum())+ " before="+Integer.toHexString(before)+" once="+Integer.toHexString(once)+" twice="+Integer.toHexString(twice));
-//							logger.warn("floodlight "+Integer.toHexString(checksums[0]));
-//							logger.warn("normalChec "+Integer.toHexString(checksums[1]));
-//							logger.warn("specificCh "+Integer.toHexString(checksums[2]));
-							
-							
-							createAndSendPacketOut(info.getClientSw(), cloneEth.serialize(),
-									OFPort.FLOOD);
-							
-							return Command.STOP;
-						}
-						
-						if(this.tcpContextAnalyzer.checkIfACKReceived(tcp)){
-							
-							if(info.getState().equals(SplicingState.Sync)){
-								info.setState(SplicingState.Connected);
-								return Command.STOP;
-							}
-							
-						}
-
-						if(this.tcpContextAnalyzer.checkIfSYNACKReceived(tcp)){
-
-							if(!info.getState().equals(SplicingState.Sync)){
-								logger.warn("Receiving a SYNACK for a connectiong already connected or not in Sync, something when wrong... "+info.getClientAddress()+ " "+info.getClientPort());
-								return Command.STOP;
-							}
-							
-							logger.warn("Receiving SYNACK from cache and destination is a splicing client, sending ACK");
-
-							TCP ackToBeSent = this.tcpContextAnalyzer.getACKFromSYNACK(tcp);
-//							Ethernet ethtoSendACK = (new TransportContext(eth)).reverseContext(this.lastIDFromIPSource.get(sourceAddress), ackToBeSent);
-							Ethernet ethtoSendACK = (new TransportContext(eth)).reverseContext((short)0, ackToBeSent);
-
-							
-							createAndSendPacketOut(sw, ethtoSendACK.serialize(),
-									OFPort.FLOOD);
-							info.setInitialSEQFromSYNACK(tcp.getSequence());
-							info.setCacheSw(sw);
-							
-							TCP get = info.getTcpGETMessage();
-							info.setInitialOriginSequenceNumber(get.getAcknowledge());
-
-							get.setDestinationPort(info.getCachePort());
-							get.setAcknowledge(ackToBeSent.getAcknowledge());
-							get.setSequence(ackToBeSent.getSequence());
-							get.setOptions(ackToBeSent.getOptions());
-							get.resetChecksum();
-							
-//							Ethernet ethtoSendGET = (new TransportContext(eth)).reverseContext(this.lastIDFromIPSource.get(sourceAddress), get);
-							Ethernet ethtoSendGET = (new TransportContext(eth)).reverseContext((short)0, get);
-
-							
-							createAndSendPacketOut(sw, ethtoSendGET.serialize(),
-									OFPort.FLOOD);
-							
-							return Command.STOP;
-						}
-						
-						
-						
-						
+						return handleTraffic(sw, eth, gtpIP, gtpTCP);				
 					}
 				}
-				
-				Data tcpData = (Data)tcp.getPayload();
-				byte[] bytes = tcpData.getData();
-				if(this.splicingClients.containsKey(sourceTCPIPId)){
-					SplicingInfo info = this.splicingClients.get(sourceTCPIPId);
-
-					if(info.getState().equals(SplicingState.Connected)){
-						if(bytes.length == 0){
-							
-							if(this.tcpContextAnalyzer.checkIfACKReceived(tcp)){
-								//Control data from client to server being spliced
-								//Redirect the data and send it
-								
-								ip.setDestinationAddress(info.getCacheAddress());
-								tcp.setDestinationPort(info.getCachePort());
-								eth.setSourceMACAddress(info.getClientMacAddress());
-								eth.setDestinationMACAddress(this.getLocalCacheMacAddress(info.getCacheAddress()));
-								
-								logger.warn("Before it was Ack="+tcp.getAcknowledge());
-
-								UnsignedInteger tcpSeq = UnsignedInteger.asUnsigned(tcp.getAcknowledge());
-								UnsignedInteger initialSeqFromSYNACK = UnsignedInteger.asUnsigned(info.getInitialSEQFromSYNACK());
-								UnsignedInteger initialOriginSeq = UnsignedInteger.asUnsigned(info.getInitialOriginSequenceNumber());
-								int ack = tcpSeq.subtract(initialOriginSeq).add(initialSeqFromSYNACK).add(UnsignedInteger.ONE).intValue();
-								
-//								int ack = (tcp.getAcknowledge() - info.getInitialOriginSequenceNumber()) + info.getInitialSEQFromSYNACK() + 1; 
-								tcp.setAcknowledge(ack);
-								logger.warn("After it was Ack="+tcp.getAcknowledge());
-
-								tcp.resetChecksum();
-								
-								createAndSendPacketOut(info.getCacheSw(), eth.serialize(),
-										OFPort.FLOOD);
-							} else if(this.tcpContextAnalyzer.checkIfRSTReceived(tcp)){
-								ip.setDestinationAddress(info.getCacheAddress());
-								tcp.setDestinationPort(info.getCachePort());
-								eth.setSourceMACAddress(info.getClientMacAddress());
-								eth.setDestinationMACAddress(this.getLocalCacheMacAddress(info.getCacheAddress()));
-								
-								UnsignedInteger tcpSeq = UnsignedInteger.asUnsigned(tcp.getAcknowledge());
-								UnsignedInteger initialSeqFromSYNACK = UnsignedInteger.asUnsigned(info.getInitialSEQFromSYNACK());
-								UnsignedInteger initialOriginSeq = UnsignedInteger.asUnsigned(info.getInitialOriginSequenceNumber());
-								int ack = tcpSeq.subtract(initialOriginSeq).add(initialSeqFromSYNACK).add(UnsignedInteger.ONE).intValue();
-								
-//								int ack = (tcp.getAcknowledge() - info.getInitialOriginSequenceNumber()) + info.getInitialSEQFromSYNACK() + 1; 
-								tcp.setAcknowledge(ack);
-								
-								tcp.resetChecksum();
-								
-								createAndSendPacketOut(info.getCacheSw(), eth.serialize(),
-										OFPort.FLOOD);
-							}
-
-						
-						}
-					}
-					
-					return Command.STOP;
-				}
-
-				
-				boolean isGetMethodForKnownHttpServer = this.checkGETToForeignHTTPServer(localCaches, ip, bytes);
-				
-				if(isGetMethodForKnownHttpServer){
-					return sendACKAndRedirectGet(eth, ip, bytes, tcp, sw, sourceAddress, sourcePort, destinationAddress, destinationPort);
-				}				
-				
 			}
 		}
 
 		return Command.CONTINUE;
+	}
+
+	private Command handleTraffic(IOFSwitch sw, Ethernet eth, IPv4 ip, TCP tcp) {
+		//Registering all TCP traffic for now.
+		//In the future, we should restrict to only TCP traffic to 
+		//port 80 and to destinationAddress == oneOfTheknownHTTPServers
+
+		int sourcePort = tcp.getSourcePort().getPort();
+		IPv4Address sourceAddress = ip.getSourceAddress();
+		int destinationPort = tcp.getDestinationPort().getPort();
+		IPv4Address destinationAddress = ip.getDestinationAddress();
+		
+		TCPIPConnection sourceTCPIPId = new TCPIPConnection(sourceAddress, sourcePort);
+		TCPIPConnection dstTCPIPId = new TCPIPConnection(destinationAddress, destinationPort);
+
+		if(isFromLocalCache(sourceAddress)){
+			//Content from local cache
+			logger.debug("Receiving something from cache "+sourceAddress+" destination is "+dstTCPIPId);
+			
+			if(this.splicingClients.containsKey(dstTCPIPId)){
+				SplicingInfo info = this.splicingClients.get(dstTCPIPId);
+				
+				logger.debug("From cache and destination is a splicing client "+dstTCPIPId+" splicing state = "+info.getState());
+				
+				if(info.getState().equals(SplicingState.Connected)){
+					sendDataToClient(eth, ip, tcp, dstTCPIPId, info);
+					
+					
+					if(this.tcpContextAnalyzer.checkIfFYNACKReceived(tcp)){
+						//Local cache trying to end the connection
+						info.setState(SplicingState.Sync);
+					}
+					
+					return Command.STOP;
+				} else if(info.getState().equals(SplicingState.Sync)){
+					
+
+					if(this.tcpContextAnalyzer.checkIfSYNACKReceived(tcp)){
+						//New connection being made with the cache for a new client
+						
+						if(!info.getState().equals(SplicingState.Sync)){
+							logger.debug("Receiving a SYNACK for a client already connected or not in Sync, something when wrong... "+info.getClientAddress()+ " "+info.getClientPort());
+							return Command.STOP;
+						}
+						
+						logger.debug("Receiving SYNACK from cache and destination is a splicing client, sending ACK");
+
+						TCP ackToBeSent = this.tcpContextAnalyzer.getACKFromSYNACK(tcp);
+						
+//						sendDataToClient(eth, ip, ackToBeSent, dstTCPIPId, info);
+
+						Ethernet ethtoSendACK = this.transportContextManager.reverseContext(eth, ackToBeSent);
+						createAndSendPacketOut(sw, ethtoSendACK.serialize(),
+								OFPort.FLOOD);
+						
+						info.setInitialSEQFromSYNACK(tcp.getSequence());
+						info.setCacheSw(sw);
+						
+						TCP get = info.getTcpGETMessage();
+						info.setInitialOriginSequenceNumber(get.getAcknowledge());
+
+						get.setDestinationPort(info.getCachePort());
+						get.setAcknowledge(ackToBeSent.getAcknowledge());
+						get.setSequence(ackToBeSent.getSequence());
+						get.setOptions(ackToBeSent.getOptions());
+						get.resetChecksum();
+						
+						Ethernet ethtoSendGET = this.transportContextManager.reverseContext(eth, get);
+						createAndSendPacketOut(sw, ethtoSendGET.serialize(),
+								OFPort.FLOOD);
+						
+						return Command.STOP;
+					}
+					
+					
+					if(this.tcpContextAnalyzer.checkIfACKReceived(tcp)){
+						
+						info.setState(SplicingState.Connected);
+						return Command.STOP;
+					}
+					
+					if(this.tcpContextAnalyzer.checkIfFYNACKReceived(tcp)){
+						sendDataToClient(eth, ip, tcp, dstTCPIPId, info);
+
+						info.setState(SplicingState.Disconnecting);
+						return Command.STOP;
+					}
+				} else if(info.getState().equals(SplicingState.Disconnecting)){
+					//This means that the cache server sent a FYN ACK packet to the client
+					if(this.tcpContextAnalyzer.checkIfACKReceived(tcp)){
+						sendDataToClient(eth, ip, tcp, dstTCPIPId, info);
+
+						info.setState(SplicingState.Disconnected);
+						
+						logger.info("Cache server sending ACK to the FYN ACK answer from the client, connection closed and info removed. recalc= "+checksumRecalculations);
+
+						//Removed the splicing client from list of clients
+						this.splicingClients.remove(sourceTCPIPId);
+						return Command.STOP;
+					}
+				}
+			}
+		}
+		
+		if(this.splicingClients.containsKey(sourceTCPIPId)){
+			//Source is one of the splicing clients
+			SplicingInfo info = this.splicingClients.get(sourceTCPIPId);
+			
+			redirectDataFromClientToCache(eth, ip, tcp, info);
+
+			if(info.getState().equals(SplicingState.Connected)){
+				if(this.tcpContextAnalyzer.checkIfFYNACKReceived(tcp)){
+					//Client is trying to end the session
+					info.setState(SplicingState.Sync);
+				}
+
+			} else if(info.getState().equals(SplicingState.Disconnecting)){
+				//Redirect the ACK
+//						redirectDataFromClientToCache(eth, ip, tcp, info);
+				
+					//This means that the cache server sent a FYN ACK packet to the client
+				if(this.tcpContextAnalyzer.checkIfACKReceived(tcp)){
+					// and the client is "acking" it now.
+					
+					//Removed the splicing client from list of clients
+					
+					logger.info("Client sending ACK to the FYN ACK answer from the cache server, connection closed and info removed. recalc= "+checksumRecalculations);
+					this.splicingClients.remove(sourceTCPIPId);
+					info.setState(SplicingState.Disconnected);
+				}
+			} else if(info.getState().equals(SplicingState.Sync)){
+//						redirectDataFromClientToCache(eth, ip, tcp, info);
+				
+				if(this.tcpContextAnalyzer.checkIfFYNACKReceived(tcp)){
+					info.setState(SplicingState.Disconnecting);
+				}
+
+
+			}
+			
+			return Command.STOP;
+		}
+		
+		if(this.splicingClients.containsKey(dstTCPIPId) && !isFromLocalCache(sourceAddress) ){
+			return Command.STOP;
+		}
+
+		Data tcpData = (Data)tcp.getPayload();
+		byte[] bytes = tcpData.getData();
+		boolean isGetMethodForKnownHttpServer = this.checkGETToForeignHTTPServer(localCaches, ip, bytes);
+		
+		if(isGetMethodForKnownHttpServer){
+			return sendACKAndRedirectGet(eth, ip, bytes, tcp, sw, sourceAddress, sourcePort, destinationAddress, destinationPort);
+		}
+		
+		return Command.CONTINUE;
+	}
+
+	private void redirectDataFromClientToCache(Ethernet eth, IPv4 ip, TCP tcp,
+			SplicingInfo info) {
+		
+		
+		
+		if(info.isGTPTunneled()){
+			Ethernet contextFromClientToCache = info.getClientToCacheContext();
+
+			contextFromClientToCache.setSourceMACAddress(info.getClientMacAddress());
+			contextFromClientToCache.setDestinationMACAddress(this.getLocalCacheMacAddress(info.getCacheAddress()));
+
+			ip.setDestinationAddress(info.getCacheAddress());
+			tcp.setDestinationPort(info.getCachePort());
+			
+			int ack = (tcp.getAcknowledge() - info.getInitialOriginSequenceNumber()) + info.getInitialSEQFromSYNACK() + 1; 
+			tcp.setAcknowledge(ack);
+
+			contextFromClientToCache.setPayload(ip);
+			ip.setParent(contextFromClientToCache);
+			ip.setPayload(tcp);
+			tcp.setParent(ip);
+			
+			tcp.resetChecksum();
+
+			
+			createAndSendPacketOut(info.getCacheSw(), contextFromClientToCache.serialize(),
+					OFPort.FLOOD);
+		} else {
+
+			ip.setDestinationAddress(info.getCacheAddress());
+			tcp.setDestinationPort(info.getCachePort());
+			eth.setSourceMACAddress(info.getClientMacAddress());
+			eth.setDestinationMACAddress(this.getLocalCacheMacAddress(info.getCacheAddress()));
+			
+			int ack = (tcp.getAcknowledge() - info.getInitialOriginSequenceNumber()) + info.getInitialSEQFromSYNACK() + 1; 
+			tcp.setAcknowledge(ack);
+
+			tcp.resetChecksum();
+
+			createAndSendPacketOut(info.getCacheSw(), eth.serialize(),
+					OFPort.FLOOD);
+		}
+	}
+
+	private void sendDataToClient(Ethernet eth, IPv4 ip, TCP tcp,
+			TCPIPConnection dstTCPIPId, SplicingInfo info) {
+//		Ethernet cloneEth = (Ethernet)eth.clone();
+//		IPv4 cloneIP = (IPv4)ip.clone();
+//		TCP cloneTCP = (TCP)tcp.clone();
+		
+		Ethernet cloneEth = eth;
+		
+		if(!info.isGTPTunneled()){
+			cloneEth.setDestinationMACAddress(info.getClientMacAddress());
+			cloneEth.setSourceMACAddress(info.getOriginMacAddress());
+			
+			
+			IPv4 cloneIP = ip;
+			TCP cloneTCP = tcp;
+
+			cloneIP.setSourceAddress(info.getOriginAddress());
+			cloneTCP.setSourcePort(info.getOriginPort());
+			int seq = (tcp.getSequence() - info.getInitialSEQFromSYNACK()) + info.getInitialOriginSequenceNumber() - 1; 
+			cloneTCP.setSequence(seq);
+
+			byte[] options = this.tcpContextAnalyzer.getOptionsWithNewTsValues(info.getToClientTSValue(), info.getToClientTSecr(), tcp.getOptions());
+			cloneTCP.setOptions(options);
+
+
+			
+			cloneIP.setPayload(cloneTCP);
+			cloneTCP.setParent(cloneIP);
+			cloneEth.setPayload(cloneIP);
+			cloneIP.setParent(cloneEth);
+
+			
+			short before = cloneTCP.getChecksum();
+			cloneTCP.resetChecksum();
+			
+//			short[] checksums = this.getChecksum(cloneTCP);
+//			short jsWrenchChecksum = checksums[2];
+	//
+	//
+//			if (cloneTCP.getChecksum() != jsWrenchChecksum) {
+//				logger.warn("Floodlight's code resulted in a different checksum than expected. "
+//						+ "Expected was "+ Integer.toHexString(jsWrenchChecksum & 0xffff)
+//						+ " flooligth result "+ Integer.toHexString(cloneTCP.getChecksum() & 0xffff)  
+////						+ " array "+getStringFromByteArray(data, Integer.toHexString(jsWrenchChecksum & 0xffff))
+////						+ " array "+getHexArrayFromByteArray(data, Integer.toHexString(jsWrenchChecksum & 0xffff))
+//						+ " recalc = "+checksumRecalculations
+//						);
+//			}
+	//
+//			cloneTCP.setChecksum(jsWrenchChecksum);
+//			
+//			checksumRecalculations++;
+			
+			logger.debug("Reseting the checksum to splicing client "
+					+ dstTCPIPId
+					+ " splicing state = "
+					+ info.getState()
+					+ " Ocks="
+					+ Integer.toHexString(tcp.getChecksum() & 0xffff)
+					+ " before="
+					+ Integer.toHexString(before & 0xffff)
+					+ " after="
+					+ Integer.toHexString(cloneTCP.getChecksum() & 0xffff)
+//					+ " otherCode="
+//					+ Integer
+//							.toHexString(checksums[2] & 0xffff)
+							);
+		} else {
+			
+			
+			IPv4 cloneIP = ip;
+			TCP cloneTCP = tcp;
+
+			cloneIP.setSourceAddress(info.getOriginAddress());
+			cloneTCP.setSourcePort(info.getOriginPort());
+			int seq = (tcp.getSequence() - info.getInitialSEQFromSYNACK()) + info.getInitialOriginSequenceNumber() - 1; 
+			cloneTCP.setSequence(seq);
+
+			byte[] options = this.tcpContextAnalyzer.getOptionsWithNewTsValues(info.getToClientTSValue(), info.getToClientTSecr(), tcp.getOptions());
+			cloneTCP.setOptions(options);
+			
+			
+			
+			
+			
+			Ethernet[] packets = info.getGtpContext().getTunneledData(cloneIP, cloneTCP);
+			
+			for (Ethernet ethernet : packets) {
+				logger.debug("Sending fragmented data to sw "+info.getClientSw());
+				createAndSendPacketOut(info.getClientSw(), ethernet.serialize(),
+						OFPort.FLOOD);
+			}
+			
+			return ;
+			
+		}
+		
+
+		
+		
+
+		
+		
+		logger.debug("Sending data to sw "+info.getClientSw());
+		createAndSendPacketOut(info.getClientSw(), cloneEth.serialize(),
+				OFPort.FLOOD);
+	}
+	
+	private String getStringFromByteArray(byte [] data, String checksum){
+		return "String "+checksum+" = \""+(new String(data)+ "\"");
+	}
+	
+	private String getHexArrayFromByteArray(byte[] data, String checksum){
+		StringBuffer buffer = new StringBuffer();
+		
+		buffer.append("byte[] "+checksum+" = new byte[] {");
+		
+		for (byte b : data) {
+//			buffer.append(b+",");
+			buffer.append(" (byte)0x"+Integer.toHexString(b & 0xff)+",");
+		}
+		
+		buffer.append("};");
+		
+		return buffer.toString();
 	}
 	
 	public short[] getChecksum(TCP tcp){
@@ -362,9 +483,10 @@ public class HTTPGETSplicerModule implements IFloodlightModule, IOFMessageListen
         if (floodlightChecksum == 0) {
             bb.rewind();
             int accumulation = 0;
-
+            
             // compute pseudo header mac
             if (parent != null && parent instanceof IPv4) {
+            	
                 accumulation += ((ipv4.getSourceAddress().getInt() >> 16) & 0xffff)
                         + (ipv4.getSourceAddress().getInt() & 0xffff);
                 accumulation += ((ipv4.getDestinationAddress().getInt() >> 16) & 0xffff)
@@ -394,51 +516,6 @@ public class HTTPGETSplicerModule implements IFloodlightModule, IOFMessageListen
         return new short[] {floodlightChecksum, normalChecksum, tcpSpecificChecksum};
 	}
 	
-	static long integralFromBytes(byte[] buffer, int offset, int length) {
-
-		long answer = 0;
-
-		while (--length >= 0) {
-			answer = answer << 8;
-			answer |= buffer[offset] >= 0 ? buffer[offset]
-					: 0xffffff00 ^ buffer[offset];
-			++offset;
-		}
-
-		return answer;
-	}
-
-	public static short checksum(byte[] message, int length, int offset) {
-		// Sum consecutive 16-bit words.
-
-		int sum = 0;
-
-		while (offset < length - 1) {
-
-			sum += (int) integralFromBytes(message, offset, 2);
-
-			offset += 2;
-		}
-
-		if (offset == length - 1) {
-
-			sum += (message[offset] >= 0 ? message[offset]
-					: message[offset] ^ 0xffffff00) << 8;
-		}
-
-		// Add upper 16 bits to lower 16 bits.
-
-		sum = (sum >>> 16) + (sum & 0xffff);
-
-		// Add carry
-
-		sum += sum >>> 16;
-
-		// Ones complement and truncate.
-
-		return (short) ~sum;
-	}
-
 	/**
 	 * Specific checksum calculation used for the UDP and TCP pseudo-header.
 	 */
@@ -484,22 +561,92 @@ public class HTTPGETSplicerModule implements IFloodlightModule, IOFMessageListen
 		return checksum(buffer, buffer.length, 0);
 	}
 
-	public static void shortToBytes(short value, byte[] buffer, int offset) {
+    //Checksum calculation based on the JSocket Wrench code
+	// https://github.com/ehrmann/jswrench
+	//The original code can be found at 
+	//https://github.com/ehrmann/jswrench/blob/master/src/com/act365/net/SocketUtils.java
+	private static long integralFromBytes(byte[] buffer, int offset, int length) {
+
+		long answer = 0;
+
+		while (--length >= 0) {
+			answer = answer << 8;
+			answer |= buffer[offset] >= 0 ? buffer[offset]
+					: 0xffffff00 ^ buffer[offset];
+			++offset;
+		}
+
+		return answer;
+	}
+    
+    //Checksum calculation based on the JSocket Wrench code
+	// https://github.com/ehrmann/jswrench
+	//The original code can be found at 
+	//https://github.com/ehrmann/jswrench/blob/master/src/com/act365/net/SocketUtils.java
+	private static void shortToBytes(short value, byte[] buffer, int offset) {
 		buffer[offset + 1] = (byte) (value & 0xff);
 		value = (short) (value >> 8);
 		buffer[offset] = (byte) (value);
 	}
-	
+    
+    //Checksum calculation based on the JSocket Wrench code
+	// https://github.com/ehrmann/jswrench
+	//The original code can be found at 
+	//https://github.com/ehrmann/jswrench/blob/master/src/com/act365/net/SocketUtils.java
+	public static short checksum(byte[] message, int length, int offset) {
+		// Sum consecutive 16-bit words.
 
+		int sum = 0;
+
+		while (offset < length - 1) {
+
+			sum += (int) integralFromBytes(message, offset, 2);
+
+			offset += 2;
+		}
+
+		if (offset == length - 1) {
+
+			sum += (message[offset] >= 0 ? message[offset]
+					: message[offset] ^ 0xffffff00) << 8;
+		}
+
+		// Add upper 16 bits to lower 16 bits.
+
+		sum = (sum >>> 16) + (sum & 0xffff);
+
+		// Add carry
+
+		sum += sum >>> 16;
+
+		// Ones complement and truncate.
+
+		return (short) ~sum;
+	}
+	
 	private net.floodlightcontroller.core.IListener.Command sendACKAndRedirectGet(
 			Ethernet eth, IPv4 ip, byte[] payloadData, TCP tcp, IOFSwitch sw, IPv4Address sourceAddress, int sourcePort, IPv4Address destinationAddress, int destinationPort) {
 
+		//Block traffic from the Origin server before hand
+		//To avoid any race conditions due to client retransmissions
+//		blockSpecificTraffic(sw, destinationAddress, destinationPort, sourceAddress, sourcePort);
+
+//		Maybe store GTP context here. The reverse context actually. 
+//		Use the same ID as IP on gtp maybe
+		
 		TCP ackToBeSent = this.tcpContextAnalyzer.getACKFromTCPData(tcp);
-//		short lastIDFromOrigin = this.lastIDFromIPSource.get(ip.getDestinationAddress());
-		short lastIDFromOrigin = (short)0;
+		Ethernet ethtoSendACK = null;
+		boolean isGTPTraffic = isGTPTraffic(eth);
 		
-		Ethernet ethtoSendACK = (new TransportContext(eth)).reverseContext(lastIDFromOrigin, ackToBeSent);
+		if(isGTPTraffic){
+			logger.debug("Sending ACK for a GTP tunneled client...");
+			ethtoSendACK = this.transportContextManager.reverseContextGTP(eth, ackToBeSent);
+		} else {
+			logger.debug("Sending ACK no GTP tunneled client...");
+			ethtoSendACK = this.transportContextManager.reverseContext(eth, ackToBeSent);
+		}
 		
+		logger.debug("First time sending ACK to sw "+sw);
 		createAndSendPacketOut(sw, ethtoSendACK.serialize(),
 				OFPort.FLOOD);
 		
@@ -510,12 +657,13 @@ public class HTTPGETSplicerModule implements IFloodlightModule, IOFMessageListen
 		Inet4Address localCacheAddress = this.getLocalCache(payloadString);
 		int localCachePort = 80;
 		
-		logger.warn("HTTP GET detected, forwarding it to " + localCacheAddress);
+		logger.debug("HTTP GET detected, forwarding it to " + localCacheAddress);
 		
 		TCPIPConnection clientTCPIPId = new TCPIPConnection(sourceAddress, sourcePort);
 		
 		if(this.splicingClients.containsKey(clientTCPIPId)){
-			
+			logger.debug("DUP HTTP GET detected, dropping the get adr " +sourceAddress + " port "+sourcePort);
+
 			//Already splicing so do nothing with this GET
 			return Command.STOP;
 		}
@@ -523,7 +671,11 @@ public class HTTPGETSplicerModule implements IFloodlightModule, IOFMessageListen
 		SplicingInfo info = new SplicingInfo(sourceAddress, sourcePort, destinationAddress, destinationPort, sw, IPv4Address.of(localCacheAddress), localCachePort, tcp, eth.getSourceMACAddress(), eth.getDestinationMACAddress());
 		
 		info.setToClientTsValues(this.tcpContextAnalyzer.getTsValues(ackToBeSent));
-//		info.setInitialIDFromOrigin(lastIDFromOrigin);
+		
+		if(isGTPTraffic){
+			info.registerGTPContext(ethtoSendACK);
+			info.registerClientToCacheContext(eth);
+		}
 
 		TCP synToBeSent = this.tcpContextAnalyzer.getSYNFromTCPGet(tcp, info.getCachePort());
 		Ethernet ethToSendSyn = info.getEthToCache(this.getLocalCacheMacAddress(info.getCacheAddress()), synToBeSent, info.getClientMacAddress());
@@ -535,97 +687,34 @@ public class HTTPGETSplicerModule implements IFloodlightModule, IOFMessageListen
 					OFPort.FLOOD);
 		}
 		info.setState(SplicingState.Sync);
-		logger.warn("Adding client to splicing list "+clientTCPIPId);
+		logger.debug("Adding client to splicing list "+clientTCPIPId);
 		this.splicingClients.put(clientTCPIPId, info);
-		blockSpecificTraffic(sw, destinationAddress, destinationPort, sourceAddress, sourcePort);
 		
 		return Command.STOP;
 
-
-//		TCPSectionContext ackPayloadContext = null;
-//
-//		if (this.payloadContext.containsKey(destinationAddress)) {
-//			Map<Integer, TCPSectionContext> map = this.payloadContext
-//					.get(destinationAddress);
-//
-//			if (map.containsKey(destinationPort)) {
-//				ackPayloadContext = map.get(destinationPort);
-//			}
-//		}
-//
-//		if (ackPayloadContext == null) {
-//			throw new RuntimeException(
-//					"No previous payload for this tunnel, trying to splice a new connection?");
-//		}
-//
-//		TCPSectionContext getPayloadContext = new TCPSectionContext();
-////		getPayloadContext.setReversePath(ackPayloadContext);
-//		getPayloadContext.updateContext(ip, sw);
-//
-//		
-//		
-//		IPv4 ackGTPIp = ackPayloadContext.getACK(payloadData.length,
-//				getPayloadContext.getTsVal(), getPayloadContext.getTsecr());
-//
-//		Ethernet ack = ackPayloadContext.getDataLayerContext()
-//				.getPacketWithPayload(ackGTPIp);
-//
-//		createAndSendPacketOut(ackPayloadContext.getSw(), ack.serialize(),
-//				OFPort.FLOOD);
-//
-//		blockSpecificTraffic(sw, destinationAddress, destinationPort, sourceAddress, sourcePort);
-////		blockSpecificTraffic(sw, sourceAddress, sourcePort, destinationAddress, destinationPort);
-//
-//		
-//
-//		boolean alreadyDownloadingThisData = this.checkDummyClients(
-//				sourceAddress, sourcePort) != null;
-//		logger.warn("TESTING! Previous client for " + sourceAddress + " "
-//				+ sourcePort + " r=" + alreadyDownloadingThisData);
-//
-//		if (!alreadyDownloadingThisData) {
-//			logger.warn("CONFIRMED! No previous client for " + sourceAddress
-//					+ " " + sourcePort);
-//
-//			DummyHTTPClient dummyClient = new DummyHTTPClient(
-//					localCacheAddress, 80, payloadString, sourceAddress, sourcePort,
-//					destinationAddress, destinationPort);
-//			dummyClient.addClientListener(this);
-//			Thread t = new Thread(dummyClient);
-//			t.start();
-//		}
-//
-//		return Command.STOP;
-
 	}
 
-//	private int getAvailablePort() {
-//		int possiblePort = 1024;
-//		
-//		while(possiblePort < 65535){
-//		    Socket s = null;
-//		    try {
-//		        s = new Socket("localhost", possiblePort);
-//		        possiblePort++;
-//		    } catch (IOException e) {
-//		        return possiblePort;
-//		    } finally {
-//		        if( s != null){
-//		            try {
-//		                s.close();
-//		            } catch (IOException e) {
-//		                throw new RuntimeException("Problems trying to find a local available port." , e);
-//		            }
-//		        }
-//		    }
-//		}
-//		
-//        throw new RuntimeException("Unable to find a local port.");
-//	}
+	private boolean isGTPTraffic(Ethernet eth) {
+		if (eth.getEtherType().equals(EthType.IPv4)) {
+			IPv4 ip = (IPv4) eth.getPayload();
+			
+			if(ip.getProtocol().equals(IpProtocol.UDP)){
+				UDP udp = (UDP) ip.getPayload();
+				
+				if (udp.getSourcePort().equals(UDP.GTP_CLIENT_PORT)
+						|| udp.getDestinationPort().equals(UDP.GTP_CLIENT_PORT)) {
+					return true;
+				}
+			}
+		}
+		return false;
+	}
 
 	private void blockSpecificTraffic(IOFSwitch sw,
-			IPv4Address destinationAddress, int destinationPort,
-			IPv4Address sourceAddress, int sourcePort) {
+			IPv4Address sourceAddress, int sourcePort,
+			IPv4Address destinationAddress, int destinationPort) {
+		
+		logger.debug("Blocking traffic dstA="+destinationAddress+" dstP="+destinationPort+" srcA="+sourceAddress+" srcP="+sourcePort);
 		OFFactory myFactory = sw.getOFFactory();
 
 		Match opositMatch = myFactory
@@ -633,15 +722,15 @@ public class HTTPGETSplicerModule implements IFloodlightModule, IOFMessageListen
 				.setExact(MatchField.ETH_TYPE, EthType.IPv4)
 				.setMasked(
 						MatchField.IPV4_SRC,
-						IPv4AddressWithMask.of(destinationAddress,
+						IPv4AddressWithMask.of(sourceAddress,
 								IPv4Address.ofCidrMaskLength(32)))
 				.setMasked(
 						MatchField.IPV4_DST,
-						IPv4AddressWithMask.of(sourceAddress,
+						IPv4AddressWithMask.of(destinationAddress,
 								IPv4Address.ofCidrMaskLength(32)))
 				.setExact(MatchField.IP_PROTO, IpProtocol.TCP)
-				.setExact(MatchField.TCP_SRC, TransportPort.of(destinationPort))
-				.setExact(MatchField.TCP_DST, TransportPort.of(sourcePort))
+				.setExact(MatchField.TCP_SRC, TransportPort.of(sourcePort))
+				.setExact(MatchField.TCP_DST, TransportPort.of(destinationPort))
 				.build();
 
 		List<OFAction> actionList = new ArrayList<OFAction>();
@@ -685,7 +774,7 @@ public class HTTPGETSplicerModule implements IFloodlightModule, IOFMessageListen
 			if (dataIntoString.contains("GET")
 					&& dataIntoString.contains("HTTP")
 					&& dataIntoString.contains("mp4")) {
-				logger.warn("HTTP GET detected checking if it to known local HTTP cache Dst=" + ip.getDestinationAddress());
+				logger.info("HTTP GET detected checking if it to known local HTTP cache Dst=" + ip.getDestinationAddress());
 
 				for (Inet4Address localCache : localHttpCaches) {
 					if(ip.getDestinationAddress().equals(IPv4Address.of(localCache))) {
@@ -699,121 +788,6 @@ public class HTTPGETSplicerModule implements IFloodlightModule, IOFMessageListen
 		
 		return false;
 	}
-
-//	private Command spliceAndRedirectLocalTraffic(TCP tcp, byte[] bytes) {
-//		int localPort = tcp.getDestinationPort()
-//				.getPort();
-//		
-//		TCPClient dummyClient = this.connectedDummyClients
-//				.get(localPort);
-//
-//		TCPSectionContext httpPayloadContext = null;
-//		IPv4Address destinationAddress = dummyClient
-//				.getDestinationAddress();
-//		int tcpDstPort = dummyClient
-//				.getDestinationPort();
-//
-//		if (this.payloadContext
-//				.containsKey(destinationAddress)) {
-//			Map<Integer, TCPSectionContext> map = this.payloadContext
-//					.get(destinationAddress);
-//
-//			if (map.containsKey(tcpDstPort)) {
-//				httpPayloadContext = map
-//						.get(tcpDstPort);
-//			}
-//		}
-//
-//		if (httpPayloadContext == null) {
-//			throw new RuntimeException(
-//					"No previous payload for this tunnel, trying to splice a new connection?");
-//		}
-//
-//		logger.warn("TCP Flags = "+tcp.getFlags()+" RST ? "+ (tcp.getFlags() == TCPSectionContext.RST_FLAG) +" ACK ? "+(tcp.getFlags() == TCPSectionContext.ACK_FLAG));
-//		logger.warn("Redirecting splicing traffic from localPort = "+localPort+" to A="+dummyClient.getSourceAddress()+" P="+dummyClient.getSourcePort());
-////		Data data = (Data) tcp.getPayload();
-////		byte[] bytes = data.getData();
-////
-////		if (bytes.length > 0) {
-////			String originalMessage = new String(
-////					bytes);
-////			bytes = originalMessage.replace(
-////					"video", "vedio").getBytes();
-////
-////			String s = new String(bytes);
-////			logger.warn("Size = " + bytes.length
-////					+ "\n" + s);
-////			tcp.setPayload(new Data(bytes));
-////		} else {
-////			logger.warn("TCP payload "
-////					+ bytes.length
-////					+ " control traffic, no data to be sent.");
-////			return Command.CONTINUE;
-////		}
-//		
-//		
-//		
-//		
-//		httpPayloadContext.addDataToBeSpliced(tcp, bytes.length);
-//		
-//		
-//
-////		IPv4 httpGTPed = httpPayloadContext
-////				.getTunneledPayloadOf(tcp, bytes);
-////
-////		Ethernet httpData = httpPayloadContext
-////				.getDataLayerContext()
-////				.getPacketWithPayload(httpGTPed);
-//
-////		createAndSendPacketOut(
-////				httpPayloadContext.getSw(),
-////				httpData.serialize(), OFPort.FLOOD);
-//
-//		return Command.CONTINUE;
-//	}
-
-//	private boolean checkIfTrafficIsLocal(IPv4 ip) {
-//		TCP tcp = (TCP) ip.getPayload();
-//		
-//		try {
-//			Enumeration<NetworkInterface> nets = NetworkInterface.getNetworkInterfaces();
-//			for (NetworkInterface netint : Collections.list(nets)) {
-//				Enumeration<InetAddress> inetAddresses = netint.getInetAddresses();
-//
-//				for (InetAddress inetAddress : Collections.list(inetAddresses)) {
-//					if (ip.getDestinationAddress().equals(IPv4Address.of(inetAddress))) {
-//						logger.warn("Local IP found, checking port "+ tcp.getDestinationPort().getPort());
-//
-//						if (this.connectedDummyClients.containsKey(tcp.getDestinationPort().getPort())) {
-//							return true;
-//						}
-//					}
-//				}
-//
-//			}
-//		} catch (SocketException e) {
-//			logger.warn("Problems listing local interfaces/addresses. "+e.getMessage());
-//		}
-//		return false;
-//	}
-
-//	private TCPClient checkDummyClients(IPv4Address iPv4Address, int port) {
-//		Set<Integer> localPorts = this.connectedDummyClients.keySet();
-//		for (int localPort : localPorts) {
-//			TCPClient client = this.connectedDummyClients.get(localPort);
-//
-//			// System.out.println("Checking " + client.getSourceAddress() + "=="
-//			// + iPv4Address);
-//			// System.out.println("Checking " + client.getLocalPort() + "=="
-//			// + port);
-//
-//			if (client.getSourceAddress().equals(iPv4Address)
-//					&& client.getSourcePort() == port) {
-//				return client;
-//			}
-//		}
-//		return null;
-//	}
 
 	public static void createAndSendPacketOut(IOFSwitch sw,
 			byte[] serializedData, OFPort outputPort) {
@@ -853,12 +827,10 @@ public class HTTPGETSplicerModule implements IFloodlightModule, IOFMessageListen
 	public void init(FloodlightModuleContext context)
 			throws FloodlightModuleException {
 		this.tcpContextAnalyzer = new TCPContextAnalyzer();
-		this.lastIDFromIPSource = Collections.synchronizedMap(new HashMap<IPv4Address, Short>());
+		this.transportContextManager = new TransportContext();
 		this.splicingClients = new HashMap<TCPIPConnection, SplicingInfo>();
 		this.switchService = context.getServiceImpl(IOFSwitchService.class);
 
-//		this.connectedDummyClients = new HashMap<Integer, TCPClient>();
-//		this.payloadContext = new HashMap<IPv4Address, Map<Integer, TCPSectionContext>>();
 		floodlightProvider = context
 				.getServiceImpl(IFloodlightProviderService.class);
 		this.localCaches = new ArrayList<Inet4Address>();
@@ -881,17 +853,4 @@ public class HTTPGETSplicerModule implements IFloodlightModule, IOFMessageListen
 
 	}
 	
-//	@Override
-//	public void addConnectedClient(int localPort, TCPClient tcpClient) {
-//		this.connectedDummyClients.put(localPort, tcpClient);
-//	}
-//
-//	public void delConnectedDummyClient(int localPort) {
-//		if (this.connectedDummyClients.containsKey(localPort)) {
-//			// TODO REMOVE Client from this list
-//			// while the client is on this list the connection is considered active
-//			this.connectedDummyClients.remove(localPort);
-//		}
-//	}
-
 }

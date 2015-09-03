@@ -189,18 +189,6 @@ public class TCPContextAnalyzer {
         return synDataOptions;
 	}
 	
-//	public TCP getSYNAckFromSYN(TCP syn){
-//		TCP cloneSyn = (TCP)syn.clone();
-//		
-//		cloneSyn.setDestinationPort(syn.getSourcePort());
-//		cloneSyn.setSourcePort(syn.getDestinationPort());
-//		cloneSyn.setAcknowledge(1);
-//		cloneSyn.setOptions(getSYNACKOptions(syn.getOptions()));
-//		cloneSyn.setFlags(SYN_ACK_FLAG);
-//		cloneSyn.resetChecksum();
-//		return cloneSyn;
-//	}
-	
 	private byte[] getSYNACKOptions(byte[] options) {
         ByteBuffer bb = ByteBuffer.wrap(options);
         byte[] synDataOptions = new byte[options.length];
@@ -333,72 +321,5 @@ public class TCPContextAnalyzer {
         
         return newOptions;
 	}
-
-	
-	
-	
-//	
-//	public void updateContext(IPv4 ip, IOFSwitch sw) {
-//		
-//		this.ip = ip;
-//		this.sw = sw;
-//		short identification = this.ip.getIdentification();
-//		
-//		if(identification == 0){
-//			//                            A prime
-//			short s = (short) (new Random(7499)).nextInt(Short.MAX_VALUE + 1);
-//			this.ip.setIdentification(s);
-//		}
-//
-//		if (this.ip.getProtocol().equals(IpProtocol.TCP)) {
-//			if(logger == null){
-//				logger = LoggerFactory.getLogger("Ctxt S="+this.ip.getSourceAddress());
-//			}
-//			
-//			TCP newTCP = (TCP) this.ip.getPayload();
-//			
-////			if(this.tcp != null && newTCP.getAcknowledge() <= this.tcp.getAcknowledge()  && newTCP.getSequence() < this.tcp.getSequence()){
-////				logger.warn("Same ACK received. ACK = "+newTCP.getAcknowledge()+ " seq = "+newTCP.getSequence());
-////				//Something wrong happened. The previous packet sent was not received.
-////				//Let the retransmission system handle it.
-////				return;
-////			}
-//			
-//			logger.warn("Setting a new ACK value = "+newTCP.getAcknowledge());
-//
-//			this.tcp = newTCP;
-//			
-//			this.tsecr = -1;
-//			this.tsVal = -1;
-//			
-//			if(this.tcp.getOptions() != null){
-//				this.getSYNACKOptions(this.tcp.getOptions());
-//			}
-//			
-//			if(this.tcp.getPayload().serialize().length == 0){
-//				if( this.tcp.getFlags() == ACK_FLAG){
-//					logger.warn("Updating context with an ACK.");
-//					
-//					int ack = this.tcp.getAcknowledge();
-//					int seq = this.tcp.getSequence();
-//					
-//					updatingContextWithACKInfo();
-//					
-//					if(alreadyReceivedAnACK){
-//						this.reversePath.reverseUpdateContextWithACKInfo(this.tcp, this.tsecr, this.tsVal);
-//					}
-//					
-//					alreadyReceivedAnACK = true;
-//					this.reversePath.registerPacketReceived(this.tcp);
-//
-//				} else if( this.tcp.getFlags() == FIN_ACK_FLAG){
-//					logger.warn("Updating context with a FIN ACK.");
-//					updatingContextWithACKInfo();
-//					
-//				}
-//			} 
-//			
-//		}
-//	}
 
 }
