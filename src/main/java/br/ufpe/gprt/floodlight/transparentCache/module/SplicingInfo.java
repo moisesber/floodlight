@@ -1,11 +1,8 @@
 package br.ufpe.gprt.floodlight.transparentCache.module;
 
-import java.nio.ByteBuffer;
-
 import net.floodlightcontroller.core.IOFSwitch;
 import net.floodlightcontroller.packet.Data;
 import net.floodlightcontroller.packet.Ethernet;
-import net.floodlightcontroller.packet.IPacket;
 import net.floodlightcontroller.packet.IPv4;
 import net.floodlightcontroller.packet.TCP;
 import net.floodlightcontroller.packet.UDP;
@@ -36,6 +33,7 @@ public class SplicingInfo {
 	private IOFSwitch cacheSw;
 	private GTPContext gtpContext;
 	private Ethernet clientToCacheContext;
+	private long synTimeStamp;
 
 	public SplicingInfo(IPv4Address clientAddress, int clientPort, IPv4Address originAddress, int originPort, 
 			IOFSwitch clientSw, IPv4Address cacheAddress, int cachePort, TCP tcp, MacAddress clientMacAddress, MacAddress originMacAddress) {
@@ -52,6 +50,7 @@ public class SplicingInfo {
 				this.state = SplicingState.Created;
 				this.initialOriginSequenceNumber = 0;
 				this.gtpContext = null;
+				this.synTimeStamp = -1;
 	}
 
 	public IOFSwitch getClientSw() {
@@ -342,4 +341,13 @@ public class SplicingInfo {
 		eth.setPayload(null);
 		this.clientToCacheContext = eth;
 	}
+
+	public void setSynTimeStamp(long synTimeStamp) {
+		this.synTimeStamp = synTimeStamp;
+	}
+
+	public long getSynTimeStamp() {
+		return synTimeStamp;
+	}
+
 }
