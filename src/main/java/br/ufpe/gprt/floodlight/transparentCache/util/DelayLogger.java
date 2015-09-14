@@ -30,7 +30,7 @@ public class DelayLogger implements Runnable {
 			} else {
 				try {
 					synchronized (this) {
-						this.wait(1000);	
+						this.wait(5000);	
 					}
 				} catch (InterruptedException e) {
 					// TODO Auto-generated catch block

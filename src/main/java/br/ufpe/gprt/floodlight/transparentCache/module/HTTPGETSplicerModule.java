@@ -49,7 +49,6 @@ public class HTTPGETSplicerModule implements IFloodlightModule, IOFMessageListen
 	private TCPContextAnalyzer tcpContextAnalyzer;
 	private TransportContext transportContextManager;
 	private Map<TCPIPConnection, SplicingInfo> splicingClients;
-	private int checksumRecalculations;
 	private long initialTimeStamp;
 	private TCacheProperties properties;
 	private DelayLogger delayLogger;
@@ -139,8 +138,33 @@ public class HTTPGETSplicerModule implements IFloodlightModule, IOFMessageListen
 					sendDataToClient(eth, ip, tcp, dstTCPIPId, info);
 					
 					
-					if(this.tcpContextAnalyzer.checkIfFYNACKReceived(tcp)){
+					if(this.tcpContextAnalyzer.checkIfFINACKReceived(tcp)){
 						//Local cache trying to end the connection
+						info.setState(SplicingState.Sync);
+					} else if(this.tcpContextAnalyzer.checkIfFINPSHACKReceived(tcp)){
+						//Specific Apache util ab behavior
+						//Only used in our experiments
+						Data payload = (Data)tcp.getPayload();
+						int seq = tcp.getSequence();
+						tcp.setSequence(tcp.getAcknowledge());
+						tcp.setAcknowledge(seq  + payload.getData().length);
+						tcp.setFlags(TCPContextAnalyzer.FIN_ACK_FLAG);
+						
+						Data zero = new Data(new byte[0]);
+						tcp.setPayload(zero);
+						zero.setParent(tcp);
+						
+						Ethernet extraPacket = null;
+						if(!info.isGTPTunneled()){
+							extraPacket = eth;
+						} else {
+							extraPacket = info.getGtpContext().getTunneledData(ip, tcp);
+						}
+
+						logger.debug("Sending extra packet due to FIN PSH ACK received "+info.getClientSw());
+						createAndSendPacketOut(info.getClientSw(), extraPacket.serialize(),
+									OFPort.FLOOD);
+
 						info.setState(SplicingState.Sync);
 					}
 					
@@ -194,7 +218,7 @@ public class HTTPGETSplicerModule implements IFloodlightModule, IOFMessageListen
 						return Command.STOP;
 					}
 					
-					if(this.tcpContextAnalyzer.checkIfFYNACKReceived(tcp)){
+					if(this.tcpContextAnalyzer.checkIfFINACKReceived(tcp)){
 						sendDataToClient(eth, ip, tcp, dstTCPIPId, info);
 
 						info.setState(SplicingState.Disconnecting);
@@ -207,10 +231,12 @@ public class HTTPGETSplicerModule implements IFloodlightModule, IOFMessageListen
 
 						info.setState(SplicingState.Disconnected);
 						
-						logger.info("Cache server sending ACK to the FYN ACK answer from the client, connection closed and info removed. recalc= "+checksumRecalculations);
 
 						//Removed the splicing client from list of clients
-						this.splicingClients.remove(sourceTCPIPId);
+						logger.debug("Cache server sending ACK to the FYN ACK answer from the client, connection closed and info removed. Befor Total splicing clients= "+this.splicingClients.size());
+
+						this.splicingClients.remove(dstTCPIPId);
+						logger.info("Cache server sending ACK to the FYN ACK answer from the client, connection closed and info removed. After Total splicing clients= "+this.splicingClients.size());
 						return Command.STOP;
 					}
 				}
@@ -224,7 +250,7 @@ public class HTTPGETSplicerModule implements IFloodlightModule, IOFMessageListen
 			redirectDataFromClientToCache(eth, ip, tcp, info);
 
 			if(info.getState().equals(SplicingState.Connected)){
-				if(this.tcpContextAnalyzer.checkIfFYNACKReceived(tcp)){
+				if(this.tcpContextAnalyzer.checkIfFINACKReceived(tcp)){
 					//Client is trying to end the session
 					info.setState(SplicingState.Sync);
 				}
@@ -238,15 +264,16 @@ public class HTTPGETSplicerModule implements IFloodlightModule, IOFMessageListen
 					// and the client is "acking" it now.
 					
 					//Removed the splicing client from list of clients
-					
-					logger.info("Client sending ACK to the FYN ACK answer from the cache server, connection closed and info removed. recalc= "+checksumRecalculations);
+					logger.debug("Client sending ACK to the FYN ACK answer from the cache server, connection closed and info removed. Befor Total splicing clients= "+this.splicingClients.size());
+
 					this.splicingClients.remove(sourceTCPIPId);
+					logger.info("Client sending ACK to the FYN ACK answer from the cache server, connection closed and info removed. After Total splicing clients= "+this.splicingClients.size());
 					info.setState(SplicingState.Disconnected);
 				}
 			} else if(info.getState().equals(SplicingState.Sync)){
 //						redirectDataFromClientToCache(eth, ip, tcp, info);
 				
-				if(this.tcpContextAnalyzer.checkIfFYNACKReceived(tcp)){
+				if(this.tcpContextAnalyzer.checkIfFINACKReceived(tcp)){
 					info.setState(SplicingState.Disconnecting);
 				}
 
@@ -399,15 +426,10 @@ public class HTTPGETSplicerModule implements IFloodlightModule, IOFMessageListen
 			
 			
 			
-			
-			
-			Ethernet[] packets = info.getGtpContext().getTunneledData(cloneIP, cloneTCP);
-			
-			for (Ethernet ethernet : packets) {
-				logger.debug("Sending fragmented data to sw "+info.getClientSw());
-				createAndSendPacketOut(info.getClientSw(), ethernet.serialize(),
+			Ethernet ethernet = info.getGtpContext().getTunneledData(cloneIP, cloneTCP);
+			logger.debug("Sending fragmented data to sw "+info.getClientSw());
+			createAndSendPacketOut(info.getClientSw(), ethernet.serialize(),
 						OFPort.FLOOD);
-			}
 			this.logOverheadDelay(System.currentTimeMillis(), true);
 
 			return ;
@@ -543,7 +565,7 @@ public class HTTPGETSplicerModule implements IFloodlightModule, IOFMessageListen
 	}
 
 	private String getLocalCacheMacAddress(IPv4Address localCacheAddress){
-		return "52:54:00:0b:3d:54";
+		return TCacheProperties.getInstance().getCacheMacAddress();
 	}
 
 	private Inet4Address getLocalCache(String payloadString) {

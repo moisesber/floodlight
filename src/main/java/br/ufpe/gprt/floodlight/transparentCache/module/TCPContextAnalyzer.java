@@ -17,6 +17,8 @@ public class TCPContextAnalyzer {
 
 	public static final short FIN_ACK_FLAG = (short)0x011;
 	
+	public static final short FIN_PSH_ACK_FLAG = (short)0x019;
+	
 	public static final short RST_FLAG = (short)0x004;
 	
 	public static final short SYN_FLAG = (short)0x002;
@@ -45,12 +47,16 @@ public class TCPContextAnalyzer {
 		return tcp.getFlags() == SYN_ACK_FLAG;
 	}
 	
-	public boolean checkIfFYNACKReceived(TCP tcp){
+	public boolean checkIfFINACKReceived(TCP tcp){
 		return tcp.getFlags() == FIN_ACK_FLAG;
 	}
 	
 	public boolean checkIfRSTReceived(TCP tcp) {
 		return tcp.getFlags() == RST_FLAG;
+	}
+	
+	public boolean checkIfFINPSHACKReceived(TCP tcp){
+		return tcp.getFlags() == FIN_PSH_ACK_FLAG;
 	}
 	
 	public TCP getACKFromSYNACK(TCP synACK){

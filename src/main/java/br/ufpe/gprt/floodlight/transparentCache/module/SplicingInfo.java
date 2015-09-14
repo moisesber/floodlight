@@ -249,7 +249,7 @@ public class SplicingInfo {
 
 
 
-		public Ethernet[] getTunneledData(IPv4 ip, TCP tcp) {
+		public Ethernet getTunneledData(IPv4 ip, TCP tcp) {
 			Data payloadData = (Data)tcp.getPayload();
 			Ethernet cloneEth = (Ethernet) this.eth.clone();
 			IPv4 cloneIP = (IPv4)this.ip.clone();
@@ -281,53 +281,7 @@ public class SplicingInfo {
 			
 			
 			tcp.resetChecksum();
-//			if(payloadData.getData().length > 0){
-//				cloneIP.setFlags((byte)0x01);
-//				Data data = new Data(tcp.serialize());
-//				cloneIP.setPayload(data);
-//				data.setParent(cloneIP);
-//				
-//				Ethernet cloneEthFragment = (Ethernet) cloneEth.clone();
-//				cloneIP.setFlags((byte)0x00);
-//				System.out.println("Setting offset "+ ((short) data.getData().length));
-//				System.out.println("Setting offset "+ (new Integer( data.getData().length )).shortValue() );
-//
-//				cloneIP.setFragmentOffset((new Integer( data.getData().length / 8) ).shortValue() );
-////				cloneIP.setFragmentOffset((short) 1);
-//
-//				cloneIP.setPayload(cloneUDP);
-//				Data zeroData = new Data(new byte[0]);
-//				ip.setPayload(zeroData);
-//				zeroData.setParent(ip);
-//				
-//				ip.resetChecksum();
-////				cloneIP.resetChecksum();
-//
-//				return new Ethernet[] { cloneEthFragment, cloneEth };
-//				
-////				Ethernet cloneEthFragment = (Ethernet) this.eth.clone();
-////				IPv4 cloneIPFragment = (IPv4)this.ip.clone();
-////				
-////				cloneIPFragment.setFlags((byte)0x00);
-////				cloneIPFragment.setFragmentOffset((short)data.getData().length);
-////				UDP cloneUDPFragment = (UDP)cloneUDP.clone();
-////				AbstractGTP cloneGTPFragment = (AbstractGTP)cloneGTP.clone();
-////				IPv4 cloneGTPIPFragment = (IPv4)ip.clone();
-////				TCP cloneTCPFragment = (TCP)tcp.clone();
-////				
-////				
-////				
-////				
-////				cloneGTPIPFragment.setPayload(cloneTCPFragment);
-////				cloneTCPFragment.setParent(cloneGTPIPFragment);
-////				
-////				cloneGTPFragment.setPayload(cloneGTPIPFragment);
-////				cloneGTPIPFragment.setParent(cloneGTPFragment);
-//				
-//				
-//			}
-			
-			return new Ethernet[] { cloneEth };
+			return  cloneEth;
 		}
 		
 	}

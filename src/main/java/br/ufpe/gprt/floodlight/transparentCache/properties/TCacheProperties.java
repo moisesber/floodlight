@@ -17,9 +17,11 @@ public class TCacheProperties {
 	private static final String CACHE_ADDRESS_STRING = "CacheAddress";
 	private static final String DELAY_LOG_FILE_STRING = "DelaysLogFile";
 	private static final String ENABLE_DELAY_LOGGING_STRING = "EnableDelayLogging";
+	private static final String CACHE_MAC_ADDRESS_STRING = "CacheMacAddress";
 
 	//default values
 	private final String defaultCacheAddress = "192.168.1.3";
+	private final String defaultCacheMacAddress = "52:54:00:0b:3d:54";
 	private final String defaultDelaysLogFile = "delays.log";
 	private final boolean defaultEnableDelayLogging = true;
 	
@@ -56,6 +58,7 @@ public class TCacheProperties {
 
 	private void initDefaulProperties(){
 		this.props.put(CACHE_ADDRESS_STRING, defaultCacheAddress);
+		this.props.put(CACHE_MAC_ADDRESS_STRING, defaultCacheMacAddress);
 		this.props.put(DELAY_LOG_FILE_STRING, defaultDelaysLogFile);
 		this.props.put(ENABLE_DELAY_LOGGING_STRING, defaultEnableDelayLogging);
 	}
@@ -66,6 +69,10 @@ public class TCacheProperties {
 	
 	public String getDelaysLogFile(){
 		return this.props.getProperty(DELAY_LOG_FILE_STRING);
+	}
+	
+	public String getCacheMacAddress(){
+		return this.props.getProperty(CACHE_MAC_ADDRESS_STRING);
 	}
 	
 	public boolean isDelayLoggingEnabled(){
