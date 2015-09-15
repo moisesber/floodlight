@@ -146,14 +146,17 @@ public class HTTPGETSplicerModule implements IFloodlightModule, IOFMessageListen
 						//Only used in our experiments
 						Data payload = (Data)tcp.getPayload();
 						int seq = tcp.getSequence();
-						tcp.setSequence(tcp.getAcknowledge());
-						tcp.setAcknowledge(seq  + payload.getData().length);
+						
+						tcp.setSequence(seq  + payload.getData().length);
+						tcp.setAcknowledge(tcp.getAcknowledge());
+						
 						tcp.setFlags(TCPContextAnalyzer.FIN_ACK_FLAG);
 						
 						Data zero = new Data(new byte[0]);
 						tcp.setPayload(zero);
 						zero.setParent(tcp);
 						
+						tcp.resetChecksum();
 						Ethernet extraPacket = null;
 						if(!info.isGTPTunneled()){
 							extraPacket = eth;
