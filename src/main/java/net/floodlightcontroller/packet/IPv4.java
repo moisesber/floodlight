@@ -364,13 +364,80 @@ public class IPv4 extends BasePacket {
             for (int i = 0; i < this.headerLength * 2; ++i) {
                 accumulation += 0xffff & bb.getShort();
             }
-            accumulation = ((accumulation >> 16) & 0xffff)
-                    + (accumulation & 0xffff);
+            
+//            System.out.println("Accumulation = "+Integer.toBinaryString(accumulation));
+//            System.out.println("Acc >> 16 "+ (Integer.toBinaryString(accumulation>>16)));
+//            System.out.println("Acc >> 16 & short "+ (Integer.toBinaryString((accumulation>>16) & 0xffff)));
+//            
+//            System.out.println("Acc & short "+Integer.toBinaryString((accumulation & 0xffff)));
+            accumulation = 
+            		((accumulation >> 16) & 0xffff)
+                    + (accumulation & 0xffff)
+                    ;
+            
+            accumulation += accumulation >>> 16;
+            
+//            System.out.println("new acc "+Integer.toBinaryString((accumulation)));
+//            System.out.println("!new acc "+Integer.toBinaryString((~accumulation)));
+//
+//            System.out.println("!new acc & short  "+Integer.toBinaryString((~accumulation & 0xffff)));
             this.checksum = (short) (~accumulation & 0xffff);
             bb.putShort(10, this.checksum);
+            
+//            System.out.println("Alternative checksum = "+Integer.toHexString(checksum(data, this.headerLength * 2, 0)));
         }
         return data;
     }
+    
+    
+      /**
+        Standard internet checksum algorithm shared by IP, ICMP, UDP and TCP.
+       */
+     
+       public static short checksum( byte[] message , int length , int offset ) {
+          
+        // Sum consecutive 16-bit words.
+     
+         int sum = 0 ;
+     
+         while( offset < length - 1 ){
+     
+         sum += (int) integralFromBytes( message , offset , 2 );
+     
+         offset += 2 ;
+         } 
+         
+         if( offset == length - 1 ){
+     
+         sum += ( message[offset] >= 0 ? message[offset] : message[offset] ^ 0xffffff00 ) << 8 ;
+         }
+     
+         // Add upper 16 bits to lower 16 bits.
+     
+         sum = ( sum >>> 16 ) + ( sum & 0xffff );
+     
+         // Add carry
+     
+         sum += sum >>> 16 ;
+     
+         // Ones complement and truncate.
+     
+         return (short) ~sum ;
+    
+} 
+       
+          static long integralFromBytes( byte[] buffer , int offset , int length ){
+    	       
+    	        long answer = 0 ;
+    	    
+    	        while( -- length >= 0 ) {
+    	        answer = answer << 8 ;
+    	        answer |= buffer[offset] >= 0 ? buffer[offset] : 0xffffff00 ^ buffer[offset] ;
+    	        ++ offset ;
+    	        }
+    	    
+    	        return answer ;
+    	      }
 
     @Override
     public IPacket deserialize(byte[] data, int offset, int length)

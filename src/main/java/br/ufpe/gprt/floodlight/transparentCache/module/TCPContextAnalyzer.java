@@ -299,6 +299,10 @@ public class TCPContextAnalyzer {
 
 	public byte[] getOptionsWithNewTsValues(int newTsValue,
 			int newTSecr, byte[] options) {
+		if(options == null){
+			return new byte[0];
+		}
+		
         ByteBuffer bb = ByteBuffer.wrap(options);
         byte[] newOptions = new byte[options.length];
         ByteBuffer newbb = ByteBuffer.wrap(newOptions);

@@ -144,29 +144,29 @@ public class HTTPGETSplicerModule implements IFloodlightModule, IOFMessageListen
 					} else if(this.tcpContextAnalyzer.checkIfFINPSHACKReceived(tcp)){
 						//Specific Apache util ab behavior
 						//Only used in our experiments
-						Data payload = (Data)tcp.getPayload();
-						int seq = tcp.getSequence();
-						
-						tcp.setSequence(seq  + payload.getData().length);
-						tcp.setAcknowledge(tcp.getAcknowledge());
-						
-						tcp.setFlags(TCPContextAnalyzer.FIN_ACK_FLAG);
-						
-						Data zero = new Data(new byte[0]);
-						tcp.setPayload(zero);
-						zero.setParent(tcp);
-						
-						tcp.resetChecksum();
-						Ethernet extraPacket = null;
-						if(!info.isGTPTunneled()){
-							extraPacket = eth;
-						} else {
-							extraPacket = info.getGtpContext().getTunneledData(ip, tcp);
-						}
-
-						logger.debug("Sending extra packet due to FIN PSH ACK received "+info.getClientSw());
-						createAndSendPacketOut(info.getClientSw(), extraPacket.serialize(),
-									OFPort.FLOOD);
+//						Data payload = (Data)tcp.getPayload();
+//						int seq = tcp.getSequence();
+//						
+//						tcp.setSequence(seq  + payload.getData().length);
+//						tcp.setAcknowledge(tcp.getAcknowledge());
+//						
+//						tcp.setFlags(TCPContextAnalyzer.FIN_ACK_FLAG);
+//						
+//						Data zero = new Data(new byte[0]);
+//						tcp.setPayload(zero);
+//						zero.setParent(tcp);
+//						
+//						tcp.resetChecksum();
+//						Ethernet extraPacket = null;
+//						if(!info.isGTPTunneled()){
+//							extraPacket = eth;
+//						} else {
+//							extraPacket = info.getGtpContext().getTunneledData(ip, tcp);
+//						}
+//
+//						logger.debug("Sending extra packet due to FIN PSH ACK received "+info.getClientSw());
+//						createAndSendPacketOut(info.getClientSw(), extraPacket.serialize(),
+//									OFPort.FLOOD);
 
 						info.setState(SplicingState.Sync);
 					}
@@ -211,7 +211,7 @@ public class HTTPGETSplicerModule implements IFloodlightModule, IOFMessageListen
 						
 						return Command.STOP;
 					}
-					
+					sendDataToClient(eth, ip, tcp, dstTCPIPId, info);
 					
 					if(this.tcpContextAnalyzer.checkIfACKReceived(tcp)){
 						
@@ -222,15 +222,15 @@ public class HTTPGETSplicerModule implements IFloodlightModule, IOFMessageListen
 					}
 					
 					if(this.tcpContextAnalyzer.checkIfFINACKReceived(tcp)){
-						sendDataToClient(eth, ip, tcp, dstTCPIPId, info);
 
 						info.setState(SplicingState.Disconnecting);
 						return Command.STOP;
 					}
 				} else if(info.getState().equals(SplicingState.Disconnecting)){
+					sendDataToClient(eth, ip, tcp, dstTCPIPId, info);
+
 					//This means that the cache server sent a FYN ACK packet to the client
 					if(this.tcpContextAnalyzer.checkIfACKReceived(tcp)){
-						sendDataToClient(eth, ip, tcp, dstTCPIPId, info);
 
 						info.setState(SplicingState.Disconnected);
 						
